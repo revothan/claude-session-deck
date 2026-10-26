@@ -207,6 +207,12 @@ button.chat { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); 
 .msg { max-width: 92%; border-radius: 18px; padding: 10px 14px; font-size: 14px; overflow-wrap: anywhere; min-width: 0; }
 .msg.user { align-self: flex-end; background: var(--accent-soft); white-space: pre-wrap; border-bottom-right-radius: 6px; }
 .msg.assistant { align-self: flex-start; background: var(--chip); border-bottom-left-radius: 6px; }
+.msg { position: relative; }
+.msg .cp { position: absolute; top: 6px; right: 8px; font-size: 11.5px; padding: 2px 9px; border-radius: 8px; opacity: 0; transition: opacity .15s; }
+.msg:hover .cp, .msg .cp:focus-visible { opacity: 1; }
+@media (hover: none) { .msg .cp { opacity: 1; } }
+.result em { display: flex !important; justify-content: space-between; align-items: center; }
+.result .cp { font-size: 11px; padding: 1px 8px; border-radius: 8px; text-transform: none; letter-spacing: 0; }
 .msg time { display: block; font: 11px var(--mono); color: var(--muted); margin-bottom: 4px; }
 .msg.assistant > div > :first-child { margin-top: 0; } .msg.assistant > div > :last-child { margin-bottom: 0; }
 .msg pre { overflow-x: auto; background: var(--bg); border-radius: 10px; padding: 10px; font-size: 12.5px; }
@@ -599,7 +605,7 @@ function card(s, m, sharers) {
     <div class="body">
       <div class="cwd">${esc(short(s.cwd))}</div>
       ${s.lastPrompt ? `<div class="prompt"><span>${esc(s.lastPrompt)}</span></div>` : ""}
-      ${s.lastResult ? `<div class="result" data-act="chat" data-id="${s.sessionId}"><em>Latest reply</em><span>${esc(plain(s.lastResult))}</span></div>` : ""}
+      ${s.lastResult ? `<div class="result" data-act="chat" data-id="${s.sessionId}"><em>Latest reply <button type="button" class="cp" data-act="copyreply" data-id="${s.sessionId}">Copy</button></em><span>${esc(plain(s.lastResult))}</span></div>` : ""}
       <div class="meta">${m === "rest" ? `<span>${restLabel(s.sessionId)}</span>` : ""}<span>${m === "busy" ? "since" : "idle"} ${ago(s.statusUpdatedAt)}</span><span>up ${uptime(s.etime)}</span><span>${s.cpu.toFixed(1)}% cpu</span><span>${s.rssMB} MB</span><span>${esc(s.tty)}</span></div>
       ${ctxBar(s)}
       <div class="actions">
@@ -658,6 +664,11 @@ document.addEventListener("click", async e => {
     }
     else if (act === "archive") { await post("/api/archive", { sessionId: id, archived: !!b.dataset.on }); toast(b.dataset.on ? "Archived" : "Unarchived"); load(); }
     else if (act === "copyid") copy(id, "Session ID");
+    else if (act === "copyreply") {
+      const j = await (await fetch("/api/thread?id=" + id)).json();
+      const last = (j.messages || []).filter(m => m.role === "assistant").at(-1);
+      if (last) copy(last.final || last.text, "Reply"); else toast("No reply to copy yet");
+    }
     else if (act === "copycmd") copy(`cd '${cwd.replace(/'/g, "'\\''")}' && claude --resume ${id}`, "Resume command");
     else if (act === "web") window.open("https://claude.ai/code/" + bridge, "_blank");
     else if (act === "resume") { await post("/api/resume", { sessionId: id, cwd }); party(x, y); toast("Waking it up in a new iTerm tab"); setTimeout(load, 2500); }
@@ -889,7 +900,7 @@ function playInterrupt(s) {
 }
 
 /* ---------- chat ---------- */
-let chId = null, chTimer = 0, chCount = -1;
+let chId = null, chTimer = 0, chCount = -1, chMsgs = [];
 function plain(md) {
   return md.replace(/```[\s\S]*?```/g, "[code]").replace(/[*_`#>]+/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/\n{2,}/g, "\n").trim();
 }
@@ -920,7 +931,8 @@ async function loadThread(force) {
     if (!force && key === chCount) return;
     chCount = key;
     const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-    box.innerHTML = msgs.map(m => m.role === "system" ? `<div class="sysnote">${esc(m.text)}</div>` : `<div class="msg ${m.role}"><time>${m.ts ? new Date(m.ts).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : ""}</time><div>${m.role === "assistant" ? md(m.text) : esc(m.text)}</div></div>`).join("")
+    chMsgs = msgs;
+    box.innerHTML = msgs.map((m, i) => m.role === "system" ? `<div class="sysnote">${esc(m.text)}</div>` : `<div class="msg ${m.role}">${m.role === "assistant" ? `<button type="button" class="cp" data-copy-i="${i}">Copy</button>` : ""}<time>${m.ts ? new Date(m.ts).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : ""}</time><div>${m.role === "assistant" ? md(m.text) : esc(m.text)}</div></div>`).join("")
       + (busy ? `<div class="typing dots">Claude is working</div>` : "")
       || `<div class="empty">No messages yet.</div>`;
     if (force || nearBottom) box.scrollTop = box.scrollHeight;
@@ -934,6 +946,11 @@ function openChat(id) {
   $("#ch-text").focus();
   clearInterval(chTimer); chTimer = setInterval(() => { if (!document.hidden) { chHeader(); loadThread(); } }, 2500);
 }
+$("#ch-msgs").addEventListener("click", e => {
+  const b = e.target.closest("[data-copy-i]"); if (!b) return;
+  const m = chMsgs[+b.dataset.copyI] || {}; copy(m.final || m.text || "", "Response");
+  b.textContent = "Copied"; setTimeout(() => b.textContent = "Copy", 1500);
+});
 $("#chat").addEventListener("close", () => { clearInterval(chTimer); chId = null; });
 $("#chat").addEventListener("click", e => { if (e.target === $("#chat")) $("#chat").close(); });
 $("#ch-close").addEventListener("click", () => $("#chat").close());
