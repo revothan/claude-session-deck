@@ -1,0 +1,82 @@
+# Claude Session Deck
+
+A small local dashboard for everyone who runs lots of Claude Code sessions at once on a Mac.
+
+It shows every running session as a little bot, sorted by what it needs from you:
+
+- **Needs you**: finished in the last 30 minutes, waiting for your reply
+- **Working**: Claude is busy
+- **Napping**: idle for 30+ minutes
+- **Resting**: sessions you've hidden for a while (they wake up when you use them)
+
+And it lets you:
+
+- Read each session's latest reply and **chat with it** from the page (your message is typed into its terminal tab)
+- **Focus** a session's iTerm tab, **quit** it, **resume** an old one, or start a new one
+- **Rename** sessions, with suggested names (instant ones, plus 4 ideas from Claude Haiku)
+- **Tune** a session: switch model or effort, `/compact`, `/fast`, `/clear`
+- See your **plan usage** (5-hour and weekly limits, same numbers as `/usage`) and each session's context size
+- See a GitHub-style graph of your prompts per day and your streak
+- Get a chime + desktop notification when a session finishes
+- Play Bug Squash or do box breathing while you wait
+
+Everything runs on `127.0.0.1`. Nothing is uploaded anywhere except as listed under Privacy.
+
+## Requirements
+
+- macOS
+- [iTerm2](https://iterm2.com) (focus, resume, chat and tune use iTerm's AppleScript)
+- Python 3 (the one that ships with macOS is fine; no packages needed)
+- [Claude Code](https://claude.com/claude-code), signed in
+
+## Install
+
+```sh
+git clone https://github.com/revothan/claude-session-deck.git ~/claude-session-deck
+~/claude-session-deck/start.sh
+```
+
+`start.sh` starts the server (if it isn't running) and opens http://127.0.0.1:7337.
+
+The first time you click Focus, Chat or Tune, macOS asks whether your terminal may control iTerm. Click OK.
+
+### Optional settings
+
+Create `config.local.sh` next to `start.sh` (it's git-ignored):
+
+```sh
+# Flags added when the page starts or resumes a session
+export CSD_CLAUDE_ARGS="--dangerously-skip-permissions"
+# Use a different port
+export PORT=7337
+```
+
+### Start it at login (optional)
+
+Add `~/claude-session-deck/start.sh` to System Settings → General → Login Items, or run it from your shell profile.
+
+## How it works
+
+- Running sessions come from `~/.claude/sessions/*.json` (Claude Code's own registry) plus `ps`.
+- Titles, last prompts, replies and context size come from the transcripts in `~/.claude/projects/`.
+- The prompt graph reads `~/.claude/history.jsonl`.
+- Chat, Tune and Rename on a running session type text into its iTerm tab. Tune and Rename only send while the session is idle; a chat message sent to a busy session gets queued by Claude Code.
+- Renaming a closed session appends a `custom-title` line to its transcript, the same thing `/rename` does.
+- Rest and archive choices are saved in `state.json` next to the server.
+
+## Privacy
+
+- **Plan usage** reads your Claude Code login from the macOS keychain (`Claude Code-credentials`) and calls `https://api.anthropic.com/api/oauth/usage`. The token never leaves your machine except in that request to Anthropic, and it's never sent to the browser.
+- **Avatars** load from `api.dicebear.com`, seeded with the session ID (no names or content).
+- **Fonts and libraries** load from Google Fonts and jsDelivr ([canvas-confetti](https://github.com/catdad/canvas-confetti), [marked](https://github.com/markedjs/marked), [DOMPurify](https://github.com/cure53/DOMPurify)).
+- **Claude's name ideas** run `claude -p --model haiku` with the session's title and recent prompts, which uses a little of your plan.
+
+## Limits
+
+- macOS + iTerm2 only. Sessions in Terminal.app, Warp, VS Code, etc. are listed, but Focus, Chat and Tune can't reach them.
+- If you type in the iTerm tab at the same moment the page sends a message, the two get mixed.
+- Context size is estimated from the last reply's token usage (and the compaction summary right after `/compact`).
+
+## License
+
+MIT

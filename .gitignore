@@ -1,0 +1,5 @@
+__pycache__/
+server.log
+state.json
+config.local.sh
+.DS_Store

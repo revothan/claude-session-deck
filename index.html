@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Session Deck</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+/* Layout: a little "crew room" — today's stats + GitHub-style prompt graph up top, then lanes by mood:
+   Needs you → Working → Napping, then the resumable history. */
+:root {
+  --bg: #fbf7ff; --panel: #ffffff; --line: #ece4f7; --fg: #2a2140; --muted: #85799c; --chip: #f3eefb;
+  --accent: #7c5cff; --accent-soft: #ece6ff;
+  --ready: #ff7aa8; --ready-bg: #ffe6ef; --busy: #f2a516; --busy-bg: #fff2d6; --nap: #7f8ab0; --nap-bg: #eceff8;
+  --danger: #e2455b; --danger-bg: #ffe3e7;
+  --g0: #efe9f8; --g1: #d6c8ff; --g2: #ad93ff; --g3: #8a67ff; --g4: #5f37e6;
+  --display: "Fredoka", "Nunito", ui-rounded, system-ui, sans-serif;
+  --body: "Nunito", ui-rounded, system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --btn-fg: #ffffff;
+  --shadow: 0 1px 0 rgba(60, 30, 120, .04), 0 6px 18px -10px rgba(60, 30, 120, .25);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1b1a1f; --panel: #232228; --line: #2f2d35; --fg: #cfcad6; --muted: #8a8593; --chip: #2a2930;
+  --accent: #a497c9; --accent-soft: #302c3c;
+  --ready: #c99aab; --ready-bg: #36292f; --busy: #c8ab78; --busy-bg: #332e24; --nap: #8e93a6; --nap-bg: #2a2b32;
+  --danger: #c98a90; --danger-bg: #352628;
+  --g0: #28272d; --g1: #37334a; --g2: #4a4366; --g3: #625884; --g4: #8579a8;
+  --btn-fg: #1b1a1f;
+  --shadow: 0 1px 0 rgba(0,0,0,.15), 0 6px 16px -12px rgba(0,0,0,.5); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #1b1a1f; --panel: #232228; --line: #2f2d35; --fg: #cfcad6; --muted: #8a8593; --chip: #2a2930;
+  --accent: #a497c9; --accent-soft: #302c3c;
+  --ready: #c99aab; --ready-bg: #36292f; --busy: #c8ab78; --busy-bg: #332e24; --nap: #8e93a6; --nap-bg: #2a2b32;
+  --danger: #c98a90; --danger-bg: #352628;
+  --g0: #28272d; --g1: #37334a; --g2: #4a4366; --g3: #625884; --g4: #8579a8;
+  --btn-fg: #1b1a1f;
+  --shadow: 0 1px 0 rgba(0,0,0,.15), 0 6px 16px -12px rgba(0,0,0,.5); color-scheme: dark; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+.wrap > *, .graph > *, section > * { min-width: 0; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 30px; }
+h1, h2 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 19px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+h2 .count { font: 700 12px var(--mono); background: var(--chip); color: var(--muted); border-radius: 999px; padding: 2px 9px; }
+h2 .hint { font: 600 13px var(--body); color: var(--muted); }
+
+/* header */
+header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 18px; }
+.hello { display: flex; align-items: center; gap: 14px; }
+.hello img { width: 58px; height: 58px; border-radius: 18px; background: var(--accent-soft); animation: bob 3s ease-in-out infinite; }
+.hello p { margin: 2px 0 0; color: var(--muted); font-weight: 600; }
+.stats { display: flex; flex-wrap: wrap; gap: 10px; }
+.stat { background: var(--panel); border-radius: 16px; padding: 10px 16px; box-shadow: var(--shadow); min-width: 96px; }
+.stat b { display: block; font: 600 24px var(--display); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.stat span { font-size: 12px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
+.stat.hot b { color: var(--ready); }
+
+/* graph */
+.graph { background: var(--panel); border-radius: 22px; padding: 18px 20px; box-shadow: var(--shadow); display: grid; gap: 12px; }
+.graph-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 10px; }
+.graph-top p { margin: 0; color: var(--muted); font-weight: 600; font-size: 13.5px; }
+.graph-top p b { color: var(--fg); }
+.gridbox { overflow-x: auto; padding-bottom: 4px; }
+.months { display: grid; grid-auto-flow: column; grid-auto-columns: 17px; gap: 3px; margin-left: 30px; font: 11px var(--mono); color: var(--muted); height: 16px; }
+.cal { display: flex; gap: 3px; }
+.dow { display: grid; grid-template-rows: repeat(7, 17px); gap: 3px; width: 27px; align-items: center; font: 10.5px var(--mono); color: var(--muted); }
+.weeks { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 17px); grid-auto-columns: 17px; gap: 3px; }
+.d { width: 17px; height: 17px; border-radius: 5px; background: var(--g0); transition: transform .12s; }
+.d:hover { transform: scale(1.35); outline: 2px solid var(--accent); }
+.d.l1 { background: var(--g1); } .d.l2 { background: var(--g2); } .d.l3 { background: var(--g3); } .d.l4 { background: var(--g4); }
+.d.today { outline: 2px solid var(--ready); outline-offset: 1px; }
+.d.future { visibility: hidden; }
+.legend { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 700; justify-content: flex-end; }
+.legend .d { width: 13px; height: 13px; border-radius: 4px; }
+.legend .d:hover { transform: none; outline: 0; }
+.today-split { display: flex; flex-wrap: wrap; gap: 6px; }
+.today-split span { font: 12px var(--mono); background: var(--chip); border-radius: 999px; padding: 3px 10px; color: var(--muted); }
+.today-split b { color: var(--fg); }
+
+/* controls */
+.bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+input[type=text] { font: 14px var(--mono); background: var(--panel); color: var(--fg); border: 2px solid var(--line); border-radius: 14px; padding: 10px 14px; min-width: 0; }
+input[type=text]:focus-visible { outline: none; border-color: var(--accent); }
+#newcwd { flex: 1 1 240px; } #filter { flex: 1 1 240px; }
+button { font: 700 13px var(--body); border: 2px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 12px; padding: 7px 13px; cursor: pointer; white-space: nowrap; transition: transform .1s, border-color .15s, background .15s; }
+button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:focus-visible { outline: 3px solid var(--accent-soft); border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--btn-fg); padding: 10px 16px; border-radius: 14px; }
+button.primary:hover:not(:disabled) { color: var(--btn-fg); filter: brightness(1.07); }
+button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+button.danger:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+button.confirm { background: var(--danger); border-color: var(--danger); color: var(--btn-fg); }
+button.confirm:hover:not(:disabled) { color: var(--btn-fg); }
+
+/* lanes + cards */
+section { display: grid; gap: 14px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+@media (max-width: 420px) { .cards { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border-radius: 20px; padding: 14px 16px; box-shadow: var(--shadow); display: grid; grid-template-columns: 56px 1fr; gap: 6px 14px; min-width: 0; border: 2px solid transparent; }
+.card.ready { border-color: var(--ready); background: linear-gradient(var(--panel), var(--panel)) padding-box, var(--ready); }
+.card.busy { border-color: color-mix(in srgb, var(--busy) 30%, transparent); }
+.card.ready { border-width: 1.5px; }
+.card.nap { opacity: .86; }
+.avatar { width: 56px; height: 56px; border-radius: 16px; grid-row: span 2; display: grid; place-items: center; position: relative; }
+.avatar img { width: 48px; height: 48px; }
+.ready .avatar { background: var(--ready-bg); } .busy .avatar { background: var(--busy-bg); } .nap .avatar { background: var(--nap-bg); }
+.busy .avatar img { animation: bounce .7s ease-in-out infinite; }
+.ready .avatar img { animation: wiggle 1.4s ease-in-out infinite; transform-origin: 50% 90%; }
+.nap .avatar img { filter: grayscale(.5); }
+.nap .avatar::after { content: "z z"; position: absolute; top: -6px; right: -4px; font: 700 12px var(--display); color: var(--nap); animation: zz 2.4s ease-in-out infinite; }
+.busy .avatar::after { content: "..."; position: absolute; top: -10px; right: -2px; font: 700 18px var(--display); color: var(--busy); animation: zz 1s steps(2) infinite; }
+@keyframes bounce { 50% { transform: translateY(-4px); } }
+@keyframes wiggle { 0%, 60%, 100% { transform: rotate(0); } 70% { transform: rotate(-10deg); } 80% { transform: rotate(9deg); } 90% { transform: rotate(-5deg); } }
+@keyframes zz { 50% { transform: translateY(-4px); opacity: .45; } }
+@keyframes bob { 50% { transform: translateY(-3px) rotate(-2deg); } }
+@media (prefers-reduced-motion: reduce) { *, *::after { animation: none !important; transition: none !important; } }
+.head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.name { font: 600 13px var(--mono); color: var(--muted); }
+.mood { font: 700 11.5px var(--body); text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 9px; border-radius: 999px; }
+.ready .mood { color: var(--ready); background: var(--ready-bg); }
+.busy .mood { color: var(--busy); background: var(--busy-bg); }
+.nap .mood { color: var(--nap); background: var(--nap-bg); }
+.title { font: 600 16.5px/1.25 var(--display); overflow-wrap: anywhere; min-width: 0; }
+.body { grid-column: 1 / -1; display: grid; gap: 8px; min-width: 0; }
+.cwd { font: 12px var(--mono); color: var(--accent); overflow-wrap: anywhere; }
+.prompt { color: var(--muted); font-size: 13.5px; background: var(--chip); border-radius: 12px; padding: 7px 11px; }
+.prompt span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 11.5px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.shared { font: 700 11px var(--body); color: var(--busy); background: var(--busy-bg); border-radius: 999px; padding: 2px 9px; }
+.empty { color: var(--muted); padding: 18px 20px; border: 2px dashed var(--line); border-radius: 20px; font-weight: 600; }
+
+/* history */
+.tablebox { overflow-x: auto; background: var(--panel); border-radius: 20px; box-shadow: var(--shadow); }
+table { width: 100%; border-collapse: collapse; min-width: 720px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font: 700 11.5px var(--body); text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--chip); }
+td.mini { width: 44px; } td.mini img { width: 30px; height: 30px; border-radius: 10px; background: var(--chip); display: block; }
+td.when, td.size { font: 12px var(--mono); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+td.folder { font: 12px var(--mono); color: var(--muted); max-width: 220px; overflow-wrap: anywhere; }
+td .t { font-weight: 800; }
+td .p { color: var(--muted); font-size: 13px; max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td.act { white-space: nowrap; text-align: right; }
+.livebadge { font: 700 10.5px var(--body); color: var(--ready); background: var(--ready-bg); border-radius: 999px; padding: 1px 8px; margin-left: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+
+#toast { position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 14px; font-weight: 700; font-size: 14px; max-width: calc(100% - 32px); box-shadow: var(--shadow); }
+#offline { background: var(--danger-bg); color: var(--danger); padding: 12px 16px; border-radius: 16px; font-weight: 700; }
+#tip { position: fixed; pointer-events: none; background: var(--fg); color: var(--bg); font: 600 12px var(--body); padding: 5px 9px; border-radius: 8px; white-space: nowrap; z-index: 5; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) img { filter: brightness(.82) saturate(.75); } }
+:root[data-theme="dark"] img { filter: brightness(.82) saturate(.75); }
+.nap .avatar img { filter: grayscale(.5) brightness(.8); }
+
+/* resting */
+.card.rest { opacity: .72; }
+.rest .avatar { background: var(--nap-bg); }
+.rest .avatar img { filter: grayscale(.85) brightness(.75); }
+.rest .avatar::after { content: "z Z z"; position: absolute; top: -8px; right: -10px; font: 700 12px var(--display); color: var(--nap); animation: zz 3s ease-in-out infinite; }
+.rest .mood { color: var(--nap); background: var(--nap-bg); }
+.rest-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rest-opts button { padding: 12px; border-radius: 14px; text-align: left; white-space: normal; }
+.rest-opts button small { display: block; font-weight: 600; color: var(--muted); font-size: 12px; margin-top: 2px; }
+h2 button { font-size: 12px; padding: 3px 10px; }
+tr.archived td { opacity: .55; }
+
+/* waiting room widget */
+#playfab { position: fixed; right: calc(18px + env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 6; border-radius: 999px; padding: 11px 16px; box-shadow: var(--shadow); background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-size: 14px; }
+#play { position: fixed; right: calc(18px + env(safe-area-inset-right, 0px)); bottom: calc(72px + env(safe-area-inset-bottom, 0px)); z-index: 6; width: min(360px, calc(100% - 36px)); background: var(--panel); border: 1.5px solid var(--line); border-radius: 22px; box-shadow: var(--shadow); padding: 14px; display: grid; gap: 10px; }
+.tabs { display: flex; gap: 6px; }
+.tabs button { flex: 1; padding: 6px; }
+.tabs button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+#game { width: 100%; aspect-ratio: 4 / 3; max-width: 100%; border-radius: 16px; background: var(--chip); display: block; cursor: crosshair; touch-action: manipulation; }
+.gbar { display: flex; justify-content: space-between; align-items: center; font: 600 13px var(--mono); color: var(--muted); }
+.gbar b { color: var(--fg); }
+.breathe { aspect-ratio: 4 / 3; border-radius: 16px; background: var(--chip); display: grid; place-items: center; position: relative; overflow: hidden; }
+.orb { width: 70px; height: 70px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, var(--g4), var(--g2)); transition: transform 4s ease-in-out; opacity: .85; }
+.breathe p { position: absolute; bottom: 14px; margin: 0; font: 600 16px var(--display); color: var(--fg); }
+.breathe small { position: absolute; top: 12px; font: 600 12px var(--mono); color: var(--muted); }
+.alert { background: var(--ready-bg); color: var(--ready); border-radius: 14px; padding: 10px 12px; font-weight: 700; font-size: 13.5px; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+
+/* latest result + chat drawer */
+.result { border-left: 3px solid var(--g3); padding: 2px 0 2px 11px; font-size: 13.5px; color: var(--fg); cursor: pointer; }
+.result span { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; white-space: pre-line; }
+.result:hover { border-color: var(--accent); }
+.result em { font-style: normal; font: 700 11px var(--body); text-transform: uppercase; letter-spacing: .07em; color: var(--muted); display: block; margin-bottom: 2px; }
+button.chat { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); color: var(--accent); }
+#chat { margin: 0 0 0 auto; height: 100%; max-height: 100%; width: min(640px, 100%); border-radius: 22px 0 0 22px; padding: 0; }
+#chat[open] { display: grid; grid-template-rows: auto auto 1fr auto; }
+.ch-head { display: flex; gap: 12px; align-items: center; padding: 16px 18px; padding-top: calc(16px + env(safe-area-inset-top, 0px)); border-bottom: 1px solid var(--line); }
+.ch-head img { width: 42px; height: 42px; border-radius: 14px; background: var(--chip); }
+.ch-head h3 { margin: 0; font: 600 17px var(--display); overflow-wrap: anywhere; }
+.ch-head p { margin: 0; font: 12px var(--mono); color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ch-head .grow { flex: 1; min-width: 0; }
+.ch-tools { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.msgs { overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.msg { max-width: 92%; border-radius: 18px; padding: 10px 14px; font-size: 14px; overflow-wrap: anywhere; min-width: 0; }
+.msg.user { align-self: flex-end; background: var(--accent-soft); white-space: pre-wrap; border-bottom-right-radius: 6px; }
+.msg.assistant { align-self: flex-start; background: var(--chip); border-bottom-left-radius: 6px; }
+.msg time { display: block; font: 11px var(--mono); color: var(--muted); margin-bottom: 4px; }
+.msg.assistant > div > :first-child { margin-top: 0; } .msg.assistant > div > :last-child { margin-bottom: 0; }
+.msg pre { overflow-x: auto; background: var(--bg); border-radius: 10px; padding: 10px; font-size: 12.5px; }
+.msg code { font-family: var(--mono); font-size: .9em; }
+.msg table { border-collapse: collapse; display: block; overflow-x: auto; font-size: 13px; }
+.msg th, .msg td { border: 1px solid var(--line); padding: 4px 8px; }
+.msg a { color: var(--accent); }
+.sysnote { align-self: center; font: 600 12px var(--mono); color: var(--muted); background: var(--chip); border-radius: 999px; padding: 4px 12px; }
+.typing { align-self: flex-start; color: var(--busy); font-weight: 700; font-size: 13px; }
+.compose { border-top: 1px solid var(--line); padding: 12px 16px; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 8px; }
+#ch-text { width: 100%; min-height: 64px; max-height: 40vh; resize: vertical; font: 14px/1.45 var(--body); background: var(--bg); color: var(--fg); border: 2px solid var(--line); border-radius: 14px; padding: 10px 12px; }
+#ch-text:focus-visible { outline: none; border-color: var(--accent); }
+.compose-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 12.5px; color: var(--muted); }
+
+/* plan usage + context */
+.usage { background: var(--panel); border-radius: 22px; padding: 16px 20px; box-shadow: var(--shadow); display: grid; gap: 12px; }
+.usage-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
+.usage-top p { margin: 0; color: var(--muted); font-size: 13px; font-weight: 600; }
+.bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 24px; }
+.bar-row { display: grid; gap: 5px; }
+.bar-label { display: flex; justify-content: space-between; gap: 8px; font-weight: 700; font-size: 13.5px; }
+.bar-label small { font: 12px var(--mono); color: var(--muted); font-weight: 400; }
+.track { height: 12px; border-radius: 999px; background: var(--chip); overflow: hidden; }
+.fill { height: 100%; border-radius: 999px; background: var(--g3); transition: width .6s ease; }
+.fill.warn { background: var(--busy); } .fill.crit { background: var(--danger); }
+.tips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tip { font-size: 12.5px; font-weight: 600; background: var(--chip); color: var(--muted); border-radius: 10px; padding: 5px 10px; }
+.tip.warn { background: var(--busy-bg); color: var(--busy); }
+.ctx { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font: 11.5px var(--mono); color: var(--muted); }
+.ctx .track { height: 6px; }
+.model { font: 600 11px var(--mono); background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 1px 7px; }
+.tune-grid { display: grid; gap: 12px; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg button { flex: 1 1 auto; }
+.tune-tips { display: grid; gap: 6px; }
+
+/* mini usage, shown in every panel */
+.umini { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font: 600 12px var(--mono); color: var(--muted); }
+.umini .u { display: inline-flex; align-items: center; gap: 6px; }
+.umini .track { display: inline-block; width: 64px; height: 7px; vertical-align: middle; }
+.umini .hint { font: 700 12px var(--body); color: var(--busy); }
+.umini .hint.crit { color: var(--danger); }
+#ustrip { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 4; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); border-bottom: 1px solid var(--line); }
+#ustrip .umini { max-width: 1240px; margin: 0 auto; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.ch-usage { padding: 8px 18px; border-bottom: 1px solid var(--line); }
+
+/* rename dialog */
+dialog { border: 0; padding: 0; border-radius: 22px; background: var(--panel); color: var(--fg); box-shadow: var(--shadow); width: min(520px, calc(100% - 32px)); }
+dialog::backdrop { background: rgba(10, 8, 16, .55); }
+.dlg { padding: 20px 22px; display: grid; gap: 14px; }
+.dlg-head { display: flex; gap: 12px; align-items: center; }
+.dlg-head img { width: 44px; height: 44px; border-radius: 14px; background: var(--chip); }
+.dlg-head h3 { margin: 0; font: 600 18px var(--display); }
+.dlg-head p { margin: 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+#rn-input { width: 100%; }
+.sugs { display: flex; flex-wrap: wrap; gap: 8px; }
+.sug { font: 600 13px var(--body); background: var(--chip); border: 1.5px solid var(--line); color: var(--fg); border-radius: 999px; padding: 6px 12px; white-space: normal; text-align: left; }
+.sug.ai { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.sug.picked { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.sug-label { font: 700 11.5px var(--body); text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.dots::after { content: "..."; animation: zz 1s steps(2) infinite; }
+.dlg-note { font-size: 12.5px; color: var(--muted); background: var(--chip); border-radius: 12px; padding: 8px 12px; }
+.dlg-foot { display: flex; justify-content: flex-end; gap: 8px; }
+</style>
+</head>
+<body>
+<div id="ustrip"><div class="umini usage-slot"></div></div>
+<div class="wrap">
+  <header>
+    <div class="hello">
+      <img id="mascot" alt="">
+      <div><h1>Claude Session Deck</h1><p id="greet">Loading your crew…</p></div>
+    </div>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <div class="usage" id="usage">
+    <div class="usage-top"><h2>Plan usage</h2><p id="usage-sub">Loading…</p></div>
+    <div class="bars" id="usage-bars"></div>
+    <div class="tips" id="usage-tips"></div>
+  </div>
+
+  <div id="offline" hidden>Can't reach the local server. Start it with ~/claude-sessions/start.sh</div>
+
+  <div class="graph">
+    <div class="graph-top">
+      <h2>Prompts this year</h2>
+      <p id="graphsum"></p>
+    </div>
+    <div class="gridbox">
+      <div class="months" id="months"></div>
+      <div class="cal">
+        <div class="dow"><span></span><span>Mon</span><span></span><span>Wed</span><span></span><span>Fri</span><span></span></div>
+        <div class="weeks" id="weeks"></div>
+      </div>
+    </div>
+    <div class="graph-top">
+      <div class="today-split" id="split"></div>
+      <div class="legend">Less <span class="d"></span><span class="d l1"></span><span class="d l2"></span><span class="d l3"></span><span class="d l4"></span> More</div>
+    </div>
+  </div>
+
+  <div class="bar">
+    <input type="text" id="newcwd" placeholder="~/path/to/project" value="~" aria-label="Folder for new session">
+    <button class="primary" id="newbtn">+ New session</button>
+    <input type="text" id="filter" placeholder="Find a session…" aria-label="Filter sessions">
+    <button id="pingbtn" title="Desktop notification + chime when a session finishes">Ping me when done</button>
+  </div>
+
+  <section>
+    <h2>Needs you <span class="count" id="c-ready">0</span><span class="hint">finished in the last 30 min</span></h2>
+    <div id="lane-ready"></div>
+  </section>
+  <section>
+    <h2>Working <span class="count" id="c-busy">0</span></h2>
+    <div id="lane-busy"></div>
+  </section>
+  <section>
+    <h2>Napping <span class="count" id="c-nap">0</span><span class="hint">idle 30+ min, quit what you're done with</span></h2>
+    <div id="lane-nap"></div>
+  </section>
+
+  <section>
+    <h2>Resting <span class="count" id="c-rest">0</span><span class="hint">hidden from Needs you, wakes up when you use it</span></h2>
+    <div id="lane-rest"></div>
+  </section>
+
+  <section>
+    <h2>Recent history <span class="count" id="c-recent">0</span><button id="showarch" type="button">Show archived</button></h2>
+    <div class="tablebox"><table>
+      <thead><tr><th></th><th>Session</th><th>Folder</th><th>Last active</th><th>Size</th><th></th></tr></thead>
+      <tbody id="recent"></tbody>
+    </table></div>
+  </section>
+</div>
+<dialog id="rn">
+  <form class="dlg" method="dialog" id="rn-form">
+    <div class="dlg-head"><img id="rn-av" alt=""><div><h3>Rename session</h3><p id="rn-cur"></p></div></div>
+    <div class="umini usage-slot"></div>
+    <input type="text" id="rn-input" maxlength="80" placeholder="New name" aria-label="New session name" autocomplete="off">
+    <div class="sug-label">Suggestions</div>
+    <div class="sugs" id="rn-quick"></div>
+    <div class="sug-label" id="rn-ai-label">Claude's ideas <span class="dots"></span></div>
+    <div class="sugs" id="rn-ai"></div>
+    <div class="dlg-note" id="rn-note"></div>
+    <div class="dlg-foot"><button type="button" id="rn-cancel">Cancel</button><button type="submit" class="primary" id="rn-save">Rename</button></div>
+  </form>
+</dialog>
+<dialog id="rs">
+  <form class="dlg" method="dialog" id="rs-form">
+    <div class="dlg-head"><img id="rs-av" alt=""><div><h3>Let it rest</h3><p id="rs-cur"></p></div></div>
+    <div class="umini usage-slot"></div>
+    <div class="rest-opts">
+      <button type="button" data-rest="60">1 hour<small>back at <span data-at="60"></span></small></button>
+      <button type="button" data-rest="180">3 hours<small>back at <span data-at="180"></span></small></button>
+      <button type="button" data-rest="tomorrow">Until tomorrow<small>8:00 AM</small></button>
+      <button type="button" data-rest="0">Until I wake it<small>stays asleep</small></button>
+    </div>
+    <div class="dlg-note">Resting sessions leave Needs you and don't ping. Typing in it wakes it automatically. The process keeps running; use Quit to free memory.</div>
+    <div class="dlg-foot"><button type="button" id="rs-cancel">Cancel</button></div>
+  </form>
+</dialog>
+<dialog id="chat">
+  <div class="ch-head">
+    <img id="ch-av" alt="">
+    <div class="grow"><h3 id="ch-title"></h3><p id="ch-sub"></p></div>
+    <div class="ch-tools">
+      <button type="button" id="ch-focus">Focus tab</button>
+      <button type="button" id="ch-copy">Copy ID</button>
+      <button type="button" id="ch-web">Web</button>
+      <button type="button" id="ch-close">Close</button>
+    </div>
+  </div>
+  <div class="ch-usage"><div class="umini usage-slot"></div></div>
+  <div class="msgs" id="ch-msgs"></div>
+  <form class="compose" id="ch-form">
+    <textarea id="ch-text" placeholder="Reply to this session…" aria-label="Reply"></textarea>
+    <div class="compose-row"><span id="ch-hint"></span><button type="submit" class="primary" id="ch-send">Send</button></div>
+  </form>
+</dialog>
+<dialog id="tune">
+  <div class="dlg tune-grid">
+    <div class="dlg-head"><img id="tn-av" alt=""><div><h3>Tune session</h3><p id="tn-sub"></p></div></div>
+    <div class="umini usage-slot"></div>
+    <div class="tune-tips" id="tn-tips"></div>
+    <div class="sug-label">Model</div>
+    <div class="seg" data-cmd="/model">
+      <button type="button" data-v="opus">Opus</button><button type="button" data-v="sonnet">Sonnet</button><button type="button" data-v="haiku">Haiku</button><button type="button" data-v="fable">Fable</button>
+    </div>
+    <div class="sug-label">Effort</div>
+    <div class="seg" data-cmd="/effort">
+      <button type="button" data-v="low">Low</button><button type="button" data-v="medium">Medium</button><button type="button" data-v="high">High</button><button type="button" data-v="xhigh">X-high</button><button type="button" data-v="max">Max</button>
+    </div>
+    <div class="sug-label">Context</div>
+    <div class="seg">
+      <button type="button" data-raw="/compact">Compact now</button>
+      <button type="button" data-raw="/fast">Toggle fast mode</button>
+      <button type="button" class="danger" data-raw="/clear" id="tn-clear">Clear conversation</button>
+    </div>
+    <div class="dlg-note">Each button types the command into the session's iTerm tab. Only works while it's idle.</div>
+    <div class="dlg-foot"><button type="button" id="tn-close">Close</button></div>
+  </div>
+</dialog>
+<button id="playfab" type="button">Play while waiting</button>
+<div id="play" hidden>
+  <div class="tabs"><button type="button" data-tab="bugs" class="on">Bug squash</button><button type="button" data-tab="breathe">Breathe</button><button type="button" id="play-close" aria-label="Close">Close</button></div>
+  <div class="umini usage-slot"></div>
+  <div class="alert" id="play-alert" hidden></div>
+  <div id="tab-bugs">
+    <canvas id="game" width="640" height="480"></canvas>
+    <div class="gbar"><span>score <b id="g-score">0</b> · best <b id="g-best">0</b></span><span><b id="g-time">45</b>s</span><button type="button" id="g-start">Start</button></div>
+  </div>
+  <div id="tab-breathe" hidden>
+    <div class="breathe"><small id="b-count">box breathing · 4-4-4-4</small><div class="orb" id="orb"></div><p id="b-say">Press start</p></div>
+    <div class="gbar"><span>rounds <b id="b-rounds">0</b></span><button type="button" id="b-start">Start</button></div>
+  </div>
+</div>
+<div id="toast" hidden></div>
+<div id="tip" hidden></div>
+<script>
+const $ = s => document.querySelector(s);
+let HOME = "";
+const READY_MS = 30 * 60 * 1000;
+let data = null, stats = null, armed = null, armTimer = null, prevStatus = {};
+let ping = false;
+try { ping = localStorage.getItem("csd-ping") === "1"; } catch {}
+
+const short = p => HOME && (p || "").startsWith(HOME) ? "~" + p.slice(HOME.length) : (p || "");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const avatar = (seed, style = "bottts-neutral") => `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}&radius=20`;
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+function ago(ms) {
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return "just now";
+  if (s < 3600) return Math.floor(s / 60) + "m ago";
+  if (s < 86400) return Math.floor(s / 3600) + "h ago";
+  return Math.floor(s / 86400) + "d ago";
+}
+function uptime(etime) {
+  const m = etime.match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/); if (!m) return etime;
+  const [d, h, mi] = [+(m[1]||0), +(m[2]||0), +m[3]];
+  return d ? `${d}d ${h}h` : h ? `${h}h ${mi}m` : `${mi}m`;
+}
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => t.hidden = true, 2600);
+}
+function party(x = 0.5, y = 0.6, n = 80) {
+  if (window.confetti && !matchMedia("(prefers-reduced-motion: reduce)").matches)
+    confetti({ particleCount: n, spread: 70, origin: { x, y }, colors: ["#a497c9", "#c99aab", "#c8ab78", "#8fb5a3"] });
+}
+function chime() {
+  try {
+    const ctx = new AudioContext();
+    [660, 880, 1175].forEach((f, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = f; o.type = "sine"; o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime + i * 0.12;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      o.start(t); o.stop(t + 0.4);
+    });
+  } catch {}
+}
+async function copy(text, label) {
+  try { await navigator.clipboard.writeText(text); toast(label + " copied"); }
+  catch { toast("Copy failed: " + text); }
+}
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", "X-CSM": "1" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+function matches(o) {
+  const q = $("#filter").value.trim().toLowerCase(); if (!q) return true;
+  return [o.name, o.cwd, o.title, o.lastPrompt, o.sessionId].some(v => (v || "").toLowerCase().includes(q));
+}
+const rested = id => !!(data && (data.rest?.[id] || data.archived?.includes(id)));
+function mood(s) {
+  if (rested(s.sessionId)) return "rest";
+  if (s.status === "busy") return "busy";
+  return Date.now() - (s.statusUpdatedAt || 0) < READY_MS ? "ready" : "nap";
+}
+const MOOD_LABEL = { ready: "done, your turn", busy: "thinking", nap: "napping", rest: "resting" };
+let showArchived = false;
+
+/* ---------- graph ---------- */
+function streaks(days) {
+  let cur = 0, best = 0, run = 0;
+  const d = new Date(); d.setHours(12);
+  if (!days[ymd(d)]) d.setDate(d.getDate() - 1); // today not started yet still keeps the streak
+  for (; days[ymd(d)]; d.setDate(d.getDate() - 1)) cur++;
+  Object.keys(days).sort().forEach((k, i, arr) => {
+    const prev = i && new Date(arr[i-1] + "T12:00"), now = new Date(k + "T12:00");
+    run = prev && (now - prev) / 864e5 === 1 ? run + 1 : 1; best = Math.max(best, run);
+  });
+  return { cur, best };
+}
+function renderGraph() {
+  if (!stats) return;
+  const days = stats.days, today = new Date(); today.setHours(12, 0, 0, 0);
+  const start = new Date(today); start.setDate(start.getDate() - 364 - start.getDay());
+  const vals = Object.values(days).sort((a, b) => a - b);
+  const q = p => vals[Math.floor((vals.length - 1) * p)] || 1;
+  const cuts = [q(.25), q(.5), q(.75)];
+  const level = n => !n ? 0 : n <= cuts[0] ? 1 : n <= cuts[1] ? 2 : n <= cuts[2] ? 3 : 4;
+  let cells = "", months = "", lastMonth = -1, week = 0, total = 0;
+  for (const d = new Date(start); d <= today || d.getDay() !== 0; d.setDate(d.getDate() + 1)) {
+    const k = ymd(d), n = days[k] || 0, future = d > today;
+    if (!future) total += n;
+    if (d.getDay() === 0) {
+      months += `<span>${d.getMonth() !== lastMonth && d.getDate() <= 7 ? d.toLocaleString("en", { month: "short" }) : ""}</span>`;
+      if (d.getDate() <= 7) lastMonth = d.getMonth();
+      week++;
+    }
+    const label = `${n} prompt${n === 1 ? "" : "s"} on ${d.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })}`;
+    cells += `<span class="d l${level(n)}${k === ymd(today) ? " today" : ""}${future ? " future" : ""}" data-tip="${label}"></span>`;
+  }
+  $("#weeks").innerHTML = cells; $("#months").innerHTML = months;
+  const gb = $(".gridbox"); gb.scrollLeft = gb.scrollWidth;
+  const st = streaks(days), todayN = days[ymd(today)] || 0;
+  const busiest = Object.entries(days).sort((a, b) => b[1] - a[1])[0];
+  $("#graphsum").innerHTML = `<b>${total.toLocaleString()}</b> prompts in the last year · busiest day <b>${busiest ? busiest[1] : 0}</b> · longest streak <b>${st.best}</b> days`;
+  const split = Object.entries(stats.projectsToday || {}).sort((a, b) => b[1] - a[1]);
+  $("#split").innerHTML = split.length ? `<span>today:</span>` + split.map(([p, n]) => `<span><b>${n}</b> ${esc(p)}</span>`).join("") : `<span>No prompts yet today</span>`;
+  stats._st = st; stats._today = todayN;
+  renderHeader();
+}
+
+/* ---------- header ---------- */
+function renderHeader() {
+  const h = new Date().getHours();
+  const part = h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  const live = data ? data.live : [];
+  const ready = live.filter(s => mood(s) === "ready").length;
+  const busy = live.filter(s => mood(s) === "busy").length;
+  $("#greet").textContent = !data ? "Loading your crew…" :
+    ready ? `${part}! ${ready} session${ready > 1 ? "s are" : " is"} waiting for you.` :
+    busy ? `${part}! ${busy} working away, nothing needs you yet.` : `${part}! All quiet. Start something fun.`;
+  const st = stats?._st || { cur: 0 };
+  $("#stats").innerHTML = `
+    <div class="stat ${ready ? "hot" : ""}"><b>${ready}</b><span>need you</span></div>
+    <div class="stat"><b>${busy}</b><span>working</span></div>
+    <div class="stat"><b>${live.length}</b><span>running</span></div>
+    <div class="stat"><b>${stats?._today ?? "–"}</b><span>prompts today</span></div>
+    <div class="stat"><b>${st.cur}</b><span>day streak</span></div>`;
+}
+
+/* ---------- lanes ---------- */
+function render() {
+  if (!data) return;
+  if (usage && !usage.error) $("#usage-tips").innerHTML = usageTips().map(t => `<span class="tip ${t[0]}">${esc(t[1])}</span>`).join("");
+  renderHeader();
+  const byCwd = {};
+  data.live.forEach(s => (byCwd[s.cwd] ||= 0, byCwd[s.cwd]++));
+  const live = data.live.filter(matches);
+  for (const m of ["ready", "busy", "nap", "rest"]) {
+    const list = live.filter(s => mood(s) === m);
+    $("#c-" + m).textContent = list.length;
+    $("#lane-" + m).innerHTML = list.length ? `<div class="cards">${list.map(s => card(s, m, byCwd[s.cwd])).join("")}</div>`
+      : `<div class="empty">${{ ready: "Nobody's waiting on you. Nice.", busy: "No session is working right now.", nap: "No sleepy sessions.", rest: "Nobody is resting. Use Rest on a card to hide it from Needs you." }[m]}</div>`;
+  }
+  const arch = new Set(data.archived || []);
+  const recent = data.recent.filter(r => matches(r) && (showArchived || !arch.has(r.sessionId)));
+  const nArch = data.recent.filter(r => arch.has(r.sessionId)).length;
+  $("#showarch").textContent = showArchived ? "Hide archived" : `Show archived (${nArch})`;
+  $("#showarch").hidden = !nArch && !showArchived;
+  $("#c-recent").textContent = recent.length;
+  $("#recent").innerHTML = recent.map(r => `<tr class="${arch.has(r.sessionId) ? "archived" : ""}">
+    <td class="mini"><img src="${avatar(r.sessionId)}" alt="" loading="lazy"></td>
+    <td><div class="t">${esc(r.title || "Untitled session")}${r.live ? '<span class="livebadge">running</span>' : ""}</div><div class="p">${esc(r.lastPrompt || r.sessionId)}</div></td>
+    <td class="folder">${esc(short(r.cwd))}</td>
+    <td class="when">${ago(r.modifiedAt)}</td>
+    <td class="size">${r.sizeKB >= 1024 ? (r.sizeKB/1024).toFixed(1) + " MB" : r.sizeKB + " KB"}</td>
+    <td class="act"><button data-act="resume" data-id="${r.sessionId}" data-cwd="${esc(r.cwd)}" ${r.live ? "disabled title='Already running'" : ""}>Resume</button>
+      <button class="chat" data-act="chat" data-id="${r.sessionId}">Chat</button>
+      <button data-act="rename" data-id="${r.sessionId}">Rename</button>
+      <button data-act="archive" data-id="${r.sessionId}" data-on="${arch.has(r.sessionId) ? "" : "1"}">${arch.has(r.sessionId) ? "Unarchive" : "Archive"}</button>
+      <button data-act="copycmd" data-id="${r.sessionId}" data-cwd="${esc(r.cwd)}">Copy cmd</button></td></tr>`).join("")
+    || `<tr><td colspan="6" class="empty">No sessions match.</td></tr>`;
+}
+
+function card(s, m, sharers) {
+  const killLabel = armed === s.pid ? "Sure? Quit" : "Quit";
+  return `<div class="card ${m}">
+    <div class="avatar"><img src="${avatar(s.sessionId)}" alt=""></div>
+    <div class="head"><span class="mood">${MOOD_LABEL[m]}</span><span class="name">${esc(s.name || s.pid)}</span>${sharers > 1 ? `<span class="shared" title="Use a git worktree to avoid clobbering">${sharers} in this folder</span>` : ""}</div>
+    <div class="title">${esc(s.title || "Untitled session")}</div>
+    <div class="body">
+      <div class="cwd">${esc(short(s.cwd))}</div>
+      ${s.lastPrompt ? `<div class="prompt"><span>${esc(s.lastPrompt)}</span></div>` : ""}
+      ${s.lastResult ? `<div class="result" data-act="chat" data-id="${s.sessionId}"><em>Latest reply</em><span>${esc(plain(s.lastResult))}</span></div>` : ""}
+      <div class="meta">${m === "rest" ? `<span>${restLabel(s.sessionId)}</span>` : ""}<span>${m === "busy" ? "since" : "idle"} ${ago(s.statusUpdatedAt)}</span><span>up ${uptime(s.etime)}</span><span>${s.cpu.toFixed(1)}% cpu</span><span>${s.rssMB} MB</span><span>${esc(s.tty)}</span></div>
+      ${ctxBar(s)}
+      <div class="actions">
+        ${m === "rest" ? `<button data-act="wake" data-id="${s.sessionId}">Wake up</button>` : ""}
+        <button class="chat" data-act="chat" data-id="${s.sessionId}">${m === "ready" ? "Read & reply" : "Chat"}</button>
+        <button data-act="focus" data-pid="${s.pid}">${m === "ready" ? "Jump in" : "Focus tab"}</button>
+        ${m !== "rest" ? `<button data-act="rest" data-id="${s.sessionId}">Rest</button>` : ""}
+        <button data-act="tune" data-pid="${s.pid}">Tune</button>
+        <button data-act="rename" data-id="${s.sessionId}">Rename</button>
+        <button class="${armed === s.pid ? "confirm" : "danger"}" data-act="kill" data-pid="${s.pid}">${killLabel}</button>
+      </div>
+    </div></div>`;
+}
+
+/* ---------- data ---------- */
+function detectFinished(live) {
+  live.forEach(s => {
+    if (prevStatus[s.pid] === "busy" && s.status !== "busy" && !rested(s.sessionId)) {
+      toast(`${s.name} finished: ${s.title || "ready"}`);
+      playInterrupt(s);
+      party(0.5, 0.3, 60);
+      if (ping) {
+        chime();
+        if ("Notification" in window && Notification.permission === "granted")
+          new Notification(`${s.name} is done`, { body: s.title || s.lastPrompt || "", icon: avatar(s.sessionId) });
+      }
+    }
+  });
+  prevStatus = Object.fromEntries(live.map(s => [s.pid, s.status]));
+}
+async function load() {
+  try {
+    const r = await fetch("/api/sessions"); data = await r.json(); HOME = data.home || HOME;
+    $("#offline").hidden = true; detectFinished(data.live); render();
+  } catch { $("#offline").hidden = false; }
+}
+async function loadStats() {
+  try { stats = await (await fetch("/api/stats")).json(); renderGraph(); } catch {}
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", async e => {
+  const b = e.target.closest("button[data-act], .result[data-act]"); if (!b) return;
+  const { act, pid, id, cwd, bridge } = b.dataset;
+  const r = b.getBoundingClientRect(), x = (r.left + r.width / 2) / innerWidth, y = (r.top + r.height / 2) / innerHeight;
+  try {
+    if (act === "focus") { await post("/api/focus", { pid: +pid }); toast("Hopped to that iTerm tab"); }
+    else if (act === "rename") openRename(id);
+    else if (act === "chat") openChat(id);
+    else if (act === "tune") openTune(+pid);
+    else if (act === "rest") openRest(id);
+    else if (act === "wake") {
+      await post("/api/rest", { sessionId: id, wake: 1 });
+      if (data.archived?.includes(id)) await post("/api/archive", { sessionId: id, archived: false });
+      toast("Good morning! It's back on duty"); load();
+    }
+    else if (act === "archive") { await post("/api/archive", { sessionId: id, archived: !!b.dataset.on }); toast(b.dataset.on ? "Archived" : "Unarchived"); load(); }
+    else if (act === "copyid") copy(id, "Session ID");
+    else if (act === "copycmd") copy(`cd '${cwd.replace(/'/g, "'\\''")}' && claude --resume ${id}`, "Resume command");
+    else if (act === "web") window.open("https://claude.ai/code/" + bridge, "_blank");
+    else if (act === "resume") { await post("/api/resume", { sessionId: id, cwd }); party(x, y); toast("Waking it up in a new iTerm tab"); setTimeout(load, 2500); }
+    else if (act === "kill") {
+      if (armed !== +pid) {
+        armed = +pid; render(); clearTimeout(armTimer);
+        armTimer = setTimeout(() => { armed = null; render(); }, 3000);
+      } else {
+        armed = null; await post("/api/kill", { pid: +pid }); party(x, y, 50); toast("Session tucked in. Bye!"); setTimeout(load, 800);
+      }
+    }
+  } catch (err) { toast(err.message); }
+});
+$("#newbtn").addEventListener("click", async e => {
+  try { await post("/api/new", { cwd: $("#newcwd").value.trim() }); party(0.3, 0.45, 120); toast("New crewmate on the way"); setTimeout(load, 3000); }
+  catch (err) { toast(err.message); }
+});
+function paintPing() { $("#pingbtn").classList.toggle("on", ping); $("#pingbtn").textContent = ping ? "Pinging when done" : "Ping me when done"; }
+$("#pingbtn").addEventListener("click", async () => {
+  ping = !ping;
+  if (ping && "Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+  if (ping) chime();
+  try { localStorage.setItem("csd-ping", ping ? "1" : "0"); } catch {}
+  paintPing();
+});
+$("#filter").addEventListener("input", render);
+const tip = $("#tip");
+document.addEventListener("mouseover", e => {
+  const t = e.target.closest("[data-tip]"); if (!t) { tip.hidden = true; return; }
+  tip.textContent = t.dataset.tip; tip.hidden = false;
+  const r = t.getBoundingClientRect();
+  tip.style.left = Math.min(innerWidth - tip.offsetWidth - 8, Math.max(8, r.left + r.width / 2 - tip.offsetWidth / 2)) + "px";
+  tip.style.top = (r.top - tip.offsetHeight - 6) + "px";
+});
+
+/* ---------- rest ---------- */
+let rsId = null;
+const hm = d => d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function restLabel(id) {
+  if (data.archived?.includes(id)) return "archived";
+  const r = data.rest?.[id]; if (!r) return "";
+  if (!r.until) return "until you wake it";
+  const d = new Date(r.until), sameDay = d.toDateString() === new Date().toDateString();
+  return `until ${sameDay ? "" : d.toLocaleDateString([], { weekday: "short" }) + " "}${hm(d)}`;
+}
+function openRest(id) {
+  const s = data.live.find(x => x.sessionId === id) || {};
+  rsId = id;
+  $("#rs-av").src = avatar(id);
+  $("#rs-cur").textContent = `${s.name || ""} · ${s.title || "Untitled session"}`;
+  document.querySelectorAll("#rs [data-at]").forEach(el => el.textContent = hm(new Date(Date.now() + el.dataset.at * 60000)));
+  $("#rs").showModal();
+}
+$("#rs").addEventListener("click", async e => {
+  if (e.target === $("#rs")) return $("#rs").close();
+  const b = e.target.closest("[data-rest]"); if (!b) return;
+  let until = 0;
+  if (b.dataset.rest === "tomorrow") { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(8, 0, 0, 0); until = +d; }
+  else if (+b.dataset.rest) until = Date.now() + b.dataset.rest * 60000;
+  try {
+    await post("/api/rest", { sessionId: rsId, until });
+    $("#rs").close(); toast("Shh, it's resting"); load();
+  } catch (err) { toast(err.message); }
+});
+$("#rs-cancel").addEventListener("click", () => $("#rs").close());
+$("#showarch").addEventListener("click", () => { showArchived = !showArchived; render(); });
+
+/* ---------- rename ---------- */
+let rnId = null, rnSeq = 0;
+function sugChips(names, cls) {
+  return names.map(n => `<button type="button" class="sug ${cls}" data-name="${esc(n)}">${esc(n)}</button>`).join("");
+}
+async function openRename(id) {
+  const live = data.live.find(s => s.sessionId === id);
+  const rec = data.recent.find(r => r.sessionId === id) || {};
+  const cur = (live || rec).title || "Untitled session";
+  rnId = id; const seq = ++rnSeq;
+  $("#rn-av").src = avatar(id);
+  $("#rn-cur").textContent = `Now: ${cur} · ${short((live || rec).cwd)}`;
+  $("#rn-input").value = cur;
+  $("#rn-quick").innerHTML = ""; $("#rn-ai").innerHTML = "";
+  $("#rn-ai-label").innerHTML = `Claude's ideas <span class="dots"></span>`;
+  $("#rn-note").textContent = live
+    ? (live.status === "busy" ? "This session is busy. Wait until it's idle to rename it." : "Running session: this types /rename into its iTerm tab.")
+    : "Saved to the transcript. Shows up in /resume and here.";
+  $("#rn-save").disabled = !!(live && live.status === "busy");
+  $("#rn").showModal(); $("#rn-input").select();
+  post("/api/suggest", { sessionId: id }).then(r => { if (seq === rnSeq) $("#rn-quick").innerHTML = sugChips(r.names, "") || '<span class="sug-label">none</span>'; }).catch(() => {});
+  post("/api/suggest", { sessionId: id, ai: 1 }).then(r => {
+    if (seq !== rnSeq) return;
+    $("#rn-ai-label").textContent = "Claude's ideas";
+    $("#rn-ai").innerHTML = sugChips(r.names, "ai") || '<span class="sug-label">No ideas this time</span>';
+  }).catch(err => { if (seq === rnSeq) $("#rn-ai-label").textContent = "Claude's ideas: " + err.message; });
+}
+$("#rn").addEventListener("click", e => {
+  const chip = e.target.closest(".sug");
+  if (chip) {
+    $("#rn-input").value = chip.dataset.name;
+    document.querySelectorAll(".sug.picked").forEach(c => c.classList.remove("picked"));
+    chip.classList.add("picked"); $("#rn-input").focus();
+  }
+  if (e.target === $("#rn")) $("#rn").close(); // backdrop click
+});
+$("#rn-cancel").addEventListener("click", () => $("#rn").close());
+$("#rn").addEventListener("close", () => { rnSeq++; });
+$("#rn-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const name = $("#rn-input").value.trim(); if (!name) return;
+  try {
+    const r = await post("/api/rename", { sessionId: rnId, name });
+    $("#rn").close(); party(0.5, 0.4, 60);
+    toast(r.via === "live" ? `Renamed to "${name}"` : `Renamed to "${name}"`);
+    setTimeout(load, r.via === "live" ? 1500 : 200);
+  } catch (err) { toast(err.message); }
+});
+
+/* ---------- waiting room ---------- */
+const P = { open: false, tab: "bugs" };
+const cv = $("#game"), g = cv.getContext("2d");
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+let G = { on: false, score: 0, left: 45, bugs: [], splats: [], last: 0, raf: 0, tick: 0 };
+let best = 0; try { best = +localStorage.getItem("csd-best") || 0; } catch {}
+$("#g-best").textContent = best;
+function spawnBug() {
+  const edge = Math.random() * 4 | 0, W = cv.width, H = cv.height;
+  const x = [0, W, Math.random() * W, Math.random() * W][edge], y = [Math.random() * H, Math.random() * H, 0, H][edge];
+  const a = Math.atan2(H / 2 - y, W / 2 - x) + (Math.random() - .5);
+  const golden = Math.random() < .08;
+  G.bugs.push({ x, y, a, v: (golden ? 150 : 70) + Math.random() * 60 + (45 - G.left) * 2, r: golden ? 20 : 26, golden, t: Math.random() * 6 });
+}
+function drawBug(b) {
+  g.save(); g.translate(b.x, b.y); g.rotate(b.a);
+  const body = b.golden ? css("--busy") : css("--accent"), leg = css("--muted");
+  g.strokeStyle = leg; g.lineWidth = 3; g.lineCap = "round";
+  for (let i = -1; i <= 1; i++) for (const sd of [-1, 1]) {
+    const w = Math.sin(b.t * 14 + i + (sd > 0 ? Math.PI : 0)) * 4;
+    g.beginPath(); g.moveTo(i * 8, 0); g.lineTo(i * 8 + w, sd * (b.r + 6)); g.stroke();
+  }
+  g.fillStyle = body; g.beginPath(); g.ellipse(0, 0, b.r * 1.15, b.r * .85, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = css("--fg"); g.globalAlpha = .18; g.fillRect(-b.r, -1.5, b.r * 2, 3); g.globalAlpha = 1;
+  g.fillStyle = css("--panel"); g.beginPath(); g.arc(b.r * .75, -5, 4, 0, 7); g.arc(b.r * .75, 5, 4, 0, 7); g.fill();
+  g.fillStyle = css("--fg"); g.beginPath(); g.arc(b.r * .85, -5, 1.8, 0, 7); g.arc(b.r * .85, 5, 1.8, 0, 7); g.fill();
+  g.restore();
+}
+function frame(t) {
+  const dt = Math.min(.05, (t - (G.last || t)) / 1000); G.last = t;
+  if (G.on) {
+    G.left -= dt; G.tick += dt;
+    if (G.tick > Math.max(.35, 1 - (45 - G.left) / 60)) { G.tick = 0; spawnBug(); }
+    if (G.left <= 0) endGame();
+  }
+  const W = cv.width, H = cv.height;
+  g.clearRect(0, 0, W, H);
+  G.splats = G.splats.filter(sp => (sp.a -= dt * .8) > 0);
+  G.splats.forEach(sp => { g.globalAlpha = sp.a; g.fillStyle = sp.c; g.font = "600 26px Fredoka, sans-serif"; g.textAlign = "center";
+    g.beginPath(); for (let i = 0; i < 7; i++) { const an = i / 7 * 6.28; g.arc(sp.x + Math.cos(an) * 14, sp.y + Math.sin(an) * 14, 6, 0, 7); } g.fill();
+    g.fillText(sp.txt, sp.x, sp.y - 26 - (1 - sp.a) * 30); g.globalAlpha = 1; });
+  G.bugs.forEach(b => {
+    if (G.on) { b.t += dt; b.a += Math.sin(b.t * 2) * dt * 1.2; b.x += Math.cos(b.a) * b.v * dt; b.y += Math.sin(b.a) * b.v * dt; }
+    drawBug(b);
+  });
+  G.bugs = G.bugs.filter(b => b.x > -60 && b.x < W + 60 && b.y > -60 && b.y < H + 60);
+  if (!G.on) {
+    g.fillStyle = css("--fg"); g.textAlign = "center"; g.font = "600 30px Fredoka, sans-serif";
+    g.fillText(G.score && G.left <= 0 ? `${G.score} bugs squashed!` : G.left < 45 ? "Paused" : "Squash the bugs", W / 2, H / 2 - 6);
+    g.font = "600 18px Nunito, sans-serif"; g.fillStyle = css("--muted");
+    g.fillText(G.left < 45 && G.left > 0 ? "Press Resume" : "Golden bugs are worth 5", W / 2, H / 2 + 26);
+  }
+  $("#g-time").textContent = Math.ceil(Math.max(0, G.left)); $("#g-score").textContent = G.score;
+  G.raf = P.open && P.tab === "bugs" ? requestAnimationFrame(frame) : 0;
+}
+function loop() { if (!G.raf && P.open && P.tab === "bugs") { G.last = 0; G.raf = requestAnimationFrame(frame); } }
+function startGame() {
+  if (G.left <= 0 || (!G.on && G.left === 45)) { G = { ...G, score: 0, left: 45, bugs: [], splats: [], tick: 0 }; }
+  G.on = !G.on; $("#g-start").textContent = G.on ? "Pause" : "Resume"; $("#play-alert").hidden = true; loop();
+}
+function endGame() {
+  G.on = false; $("#g-start").textContent = "Play again";
+  if (G.score > best) { best = G.score; $("#g-best").textContent = best; try { localStorage.setItem("csd-best", best); } catch {} party(.85, .7, 70); }
+}
+cv.addEventListener("pointerdown", e => {
+  if (!G.on) return;
+  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) * cv.width / r.width, y = (e.clientY - r.top) * cv.height / r.height;
+  const hit = G.bugs.findIndex(b => Math.hypot(b.x - x, b.y - y) < b.r + 14);
+  if (hit < 0) return;
+  const b = G.bugs.splice(hit, 1)[0], pts = b.golden ? 5 : 1;
+  G.score += pts; G.splats.push({ x: b.x, y: b.y, a: 1, c: b.golden ? css("--busy") : css("--g2"), txt: "+" + pts });
+});
+$("#g-start").addEventListener("click", startGame);
+
+/* breathe */
+let B = { on: false, step: 0, rounds: 0, timer: 0 };
+const STEPS = [["Breathe in", 1.9], ["Hold", 1.9], ["Breathe out", 1], ["Hold", 1]];
+function breathe() {
+  const [say, scale] = STEPS[B.step % 4];
+  $("#b-say").textContent = say; $("#orb").style.transform = `scale(${scale})`;
+  if (B.step % 4 === 0 && B.step) $("#b-rounds").textContent = ++B.rounds;
+  B.step++; B.timer = setTimeout(breathe, 4000);
+}
+$("#b-start").addEventListener("click", () => {
+  B.on = !B.on; clearTimeout(B.timer);
+  if (B.on) { B.step = 0; breathe(); } else { $("#b-say").textContent = "Paused"; $("#orb").style.transform = "scale(1)"; }
+  $("#b-start").textContent = B.on ? "Stop" : "Start";
+});
+
+/* panel */
+function setTab(t) {
+  P.tab = t;
+  document.querySelectorAll("[data-tab]").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  $("#tab-bugs").hidden = t !== "bugs"; $("#tab-breathe").hidden = t !== "breathe";
+  if (t !== "bugs" && G.on) startGame(); // pause
+  loop();
+}
+document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", () => setTab(b.dataset.tab)));
+function togglePlay(open) {
+  P.open = open; $("#play").hidden = !open; $("#playfab").textContent = open ? "Back to work" : "Play while waiting";
+  if (!open) { if (G.on) startGame(); if (B.on) $("#b-start").click(); }
+  loop();
+}
+$("#playfab").addEventListener("click", () => togglePlay(!P.open));
+$("#play-close").addEventListener("click", () => togglePlay(false));
+function playInterrupt(s) {
+  if (!P.open) return;
+  if (G.on) startGame(); // pause the game
+  if (B.on) $("#b-start").click();
+  const a = $("#play-alert");
+  a.innerHTML = `<span>${esc(s.name)} is done!</span><button type="button" data-act="focus" data-pid="${s.pid}">Jump in</button>`;
+  a.hidden = false;
+}
+
+/* ---------- chat ---------- */
+let chId = null, chTimer = 0, chCount = -1;
+function plain(md) {
+  return md.replace(/```[\s\S]*?```/g, "[code]").replace(/[*_`#>]+/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/\n{2,}/g, "\n").trim();
+}
+function md(text) {
+  if (!window.marked || !window.DOMPurify) return esc(text).replace(/\n/g, "<br>");
+  return DOMPurify.sanitize(marked.parse(text, { breaks: true, gfm: true }));
+}
+const chSession = () => data?.live.find(s => s.sessionId === chId);
+function chHeader() {
+  const s = chSession(), r = data?.recent.find(x => x.sessionId === chId) || {};
+  const o = s || r;
+  $("#ch-av").src = avatar(chId);
+  $("#ch-title").textContent = o.title || "Untitled session";
+  const status = s ? `<span class="mood" style="color:var(--${s.status === "busy" ? "busy" : "ready"})">${s.status === "busy" ? "thinking…" : "idle"}</span>` : "<span>not running</span>";
+  $("#ch-sub").innerHTML = `${esc(s?.name || "")} ${status} <span>${esc(short(o.cwd))}</span>`;
+  $("#ch-focus").hidden = !s; $("#ch-web").hidden = !s?.bridgeSessionId;
+  $("#ch-hint").textContent = !s ? "Not running: sending resumes it in a new iTerm tab with your message."
+    : s.status === "busy" ? "It's working. Your message gets queued and runs next." : "Sends to its iTerm tab. ⌘↵ to send.";
+}
+async function loadThread(force) {
+  if (!chId) return;
+  try {
+    const r = await fetch("/api/thread?id=" + chId); const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    const msgs = j.messages, box = $("#ch-msgs");
+    const busy = chSession()?.status === "busy";
+    const key = msgs.length + ":" + (msgs.at(-1)?.text.length || 0) + ":" + busy;
+    if (!force && key === chCount) return;
+    chCount = key;
+    const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    box.innerHTML = msgs.map(m => m.role === "system" ? `<div class="sysnote">${esc(m.text)}</div>` : `<div class="msg ${m.role}"><time>${m.ts ? new Date(m.ts).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : ""}</time><div>${m.role === "assistant" ? md(m.text) : esc(m.text)}</div></div>`).join("")
+      + (busy ? `<div class="typing dots">Claude is working</div>` : "")
+      || `<div class="empty">No messages yet.</div>`;
+    if (force || nearBottom) box.scrollTop = box.scrollHeight;
+  } catch (err) { $("#ch-msgs").innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+}
+function openChat(id) {
+  chId = id; chCount = -1;
+  $("#ch-msgs").innerHTML = `<div class="empty dots">Loading</div>`;
+  chHeader(); $("#chat").showModal(); loadThread(true);
+  try { $("#ch-text").value = sessionStorage.getItem("csd-draft-" + id) || ""; } catch {}
+  $("#ch-text").focus();
+  clearInterval(chTimer); chTimer = setInterval(() => { if (!document.hidden) { chHeader(); loadThread(); } }, 2500);
+}
+$("#chat").addEventListener("close", () => { clearInterval(chTimer); chId = null; });
+$("#chat").addEventListener("click", e => { if (e.target === $("#chat")) $("#chat").close(); });
+$("#ch-close").addEventListener("click", () => $("#chat").close());
+$("#ch-focus").addEventListener("click", async () => { try { await post("/api/focus", { pid: chSession().pid }); } catch (err) { toast(err.message); } });
+$("#ch-copy").addEventListener("click", () => copy(chId, "Session ID"));
+$("#ch-web").addEventListener("click", () => window.open("https://claude.ai/code/" + chSession().bridgeSessionId, "_blank"));
+$("#ch-text").addEventListener("input", () => { try { sessionStorage.setItem("csd-draft-" + chId, $("#ch-text").value); } catch {} });
+$("#ch-text").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $("#ch-form").requestSubmit(); } });
+$("#ch-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const text = $("#ch-text").value.trim(); if (!text) return;
+  $("#ch-send").disabled = true;
+  try {
+    const r = await post("/api/reply", { sessionId: chId, text });
+    $("#ch-text").value = ""; try { sessionStorage.removeItem("csd-draft-" + chId); } catch {}
+    toast(r.via === "resume" ? "Resuming it in a new iTerm tab with your message" : r.queued ? "Queued. It runs after the current task" : "Sent");
+    $("#ch-msgs").insertAdjacentHTML("beforeend", `<div class="msg user"><time>just now</time><div>${esc(text)}</div></div>`);
+    $("#ch-msgs").scrollTop = $("#ch-msgs").scrollHeight;
+    setTimeout(load, 1200);
+  } catch (err) { toast(err.message); }
+  $("#ch-send").disabled = false;
+});
+
+/* ---------- plan usage ---------- */
+const fmtK = n => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : Math.round(n / 1000) + "k";
+const ctxMax = s => (/opus|fable/.test(s.model || "") || (s.ctxTokens || 0) > 200000) ? 1e6 : 2e5;
+const lvl = p => p >= 85 ? "crit" : p >= 60 ? "warn" : "";
+function ctxBar(s) {
+  if (!s.ctxTokens) return "";
+  const max = ctxMax(s), pct = Math.min(100, s.ctxTokens / max * 100);
+  return `<div class="ctx"><span class="model">${esc((s.model || "").replace("claude-", ""))}</span><span class="track"><span class="fill ${lvl(pct)}" style="width:${pct.toFixed(1)}%;display:block"></span></span><span>${fmtK(s.ctxTokens)} / ${fmtK(max)}</span></div>`;
+}
+function resetsIn(iso) {
+  const ms = new Date(iso) - Date.now(); if (ms <= 0) return "resetting";
+  const h = Math.floor(ms / 36e5), m = Math.floor(ms % 36e5 / 6e4);
+  return h >= 24 ? `resets ${new Date(iso).toLocaleDateString([], { weekday: "short" })} ${hm(new Date(iso))}` : `resets in ${h ? h + "h " : ""}${m}m`;
+}
+let usage = null;
+async function loadUsage() {
+  try { usage = await (await fetch("/api/usage")).json(); } catch { usage = { error: "Server offline" }; }
+  renderUsage();
+}
+function renderUsage() {
+  if (!usage) return;
+  paintUsageSlots();
+  if (usage.error) { $("#usage-sub").textContent = usage.error; return; }
+  const name = { session: "Current session (5h)", weekly_all: "This week, all models", weekly_opus: "This week, Opus", weekly_sonnet: "This week, Sonnet" };
+  $("#usage-sub").textContent = `${(usage.plan || "").toUpperCase()} plan · updated ${ago(usage.fetchedAt)}`;
+  $("#usage-bars").innerHTML = usage.limits.map(l => `<div class="bar-row">
+    <div class="bar-label"><span>${esc(name[l.kind] || l.kind.replace(/_/g, " "))}</span><small>${l.percent}% · ${resetsIn(l.resets_at)}</small></div>
+    <div class="track"><div class="fill ${lvl(l.percent)}" style="width:${Math.min(100, l.percent)}%"></div></div></div>`).join("");
+  $("#usage-tips").innerHTML = usageTips().map(t => `<span class="tip ${t[0]}">${esc(t[1])}</span>`).join("");
+}
+function usageMini() {
+  if (!usage || usage.error) return `<span>${esc(usage?.error || "Loading usage…")}</span>`;
+  const label = { session: "5h", weekly_all: "week", weekly_opus: "opus wk", weekly_sonnet: "sonnet wk" };
+  let hint = "";
+  const parts = usage.limits.map(l => {
+    if (l.kind === "session" && l.percent >= 85) hint = `<span class="hint crit">Near the 5h cap, keep messages light</span>`;
+    else if (l.group === "weekly" && l.percent >= 85 && !hint) hint = `<span class="hint crit">Week almost used: Haiku or low effort</span>`;
+    else if (l.group === "weekly" && l.percent >= 60 && !hint) hint = `<span class="hint">Sonnet or medium effort for routine asks</span>`;
+    return `<span class="u">${esc(label[l.kind] || l.kind)} <span class="track"><span class="fill ${lvl(l.percent)}" style="display:block;width:${Math.min(100, l.percent)}%"></span></span>${l.percent}% <span>↻ ${resetsIn(l.resets_at).replace(/^resets (in )?/, "")}</span></span>`;
+  });
+  return parts.join("") + hint;
+}
+function paintUsageSlots() { const h = usageMini(); document.querySelectorAll(".usage-slot").forEach(el => el.innerHTML = h); }
+function usageTips() {
+  const tips = [], week = usage?.limits?.find(l => l.group === "weekly"), sess = usage?.limits?.find(l => l.kind === "session");
+  const live = data?.live || [];
+  if (week && week.percent >= 60) tips.push(["warn", `Week at ${week.percent}%: use Sonnet or lower effort for routine sessions`]);
+  if (sess && sess.percent >= 80) tips.push(["warn", `5-hour window at ${sess.percent}%: pause heavy work until it resets`]);
+  const big = live.filter(s => s.ctxTokens && s.ctxTokens / ctxMax(s) > .5);
+  if (big.length) tips.push(["warn", `${big.length} session${big.length > 1 ? "s" : ""} over half full: Compact them (Tune)`]);
+  const stale = live.filter(s => s.status !== "busy" && Date.now() - s.statusUpdatedAt > 864e5);
+  if (stale.length) tips.push(["", `${stale.length} idle for a day+: quit to free ${stale.reduce((a, s) => a + s.rssMB, 0)} MB`]);
+  if (!tips.length) tips.push(["", "All good. Big context = every message costs more, so compact long sessions."]);
+  return tips;
+}
+
+/* ---------- tune ---------- */
+let tnPid = null, tnClearArmed = false;
+function openTune(pid) {
+  const s = data.live.find(x => x.pid === pid); if (!s) return;
+  tnPid = pid; tnClearArmed = false; $("#tn-clear").textContent = "Clear conversation"; $("#tn-clear").className = "danger";
+  $("#tn-av").src = avatar(s.sessionId);
+  $("#tn-sub").textContent = `${s.name} · ${s.model ? s.model.replace("claude-", "") : "model unknown"}${s.ctxTokens ? " · " + fmtK(s.ctxTokens) + " context" : ""}`;
+  const tips = [];
+  const pct = s.ctxTokens ? s.ctxTokens / ctxMax(s) : 0;
+  if (pct > .5) tips.push(["warn", `Context is ${Math.round(pct * 100)}% full. Compact to make each reply cheaper.`]);
+  else if (s.ctxTokens > 150000) tips.push(["", `${fmtK(s.ctxTokens)} tokens of history get re-read every message. Compact if the old part isn't needed.`]);
+  if (Date.now() - s.statusUpdatedAt > 864e5) tips.push(["", "Idle a day+. If the task is done, quit it or Clear to start fresh."]);
+  if (/opus/.test(s.model || "")) tips.push(["", "Opus for planning and hard bugs. Sonnet + medium effort is plenty for edits and lookups."]);
+  $("#tn-tips").innerHTML = tips.map(t => `<span class="tip ${t[0]}">${esc(t[1])}</span>`).join("") || "";
+  $("#tune").showModal();
+}
+async function sendCmd(cmd) {
+  try { await post("/api/cmd", { pid: tnPid, cmd }); toast(`Sent ${cmd}`); setTimeout(load, 1500); }
+  catch (err) { toast(err.message); }
+}
+$("#tune").addEventListener("click", e => {
+  if (e.target === $("#tune")) return $("#tune").close();
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.v) return sendCmd(`${b.closest("[data-cmd]").dataset.cmd} ${b.dataset.v}`);
+  if (b.dataset.raw === "/clear" && !tnClearArmed) { tnClearArmed = true; b.textContent = "Sure? This wipes the chat"; b.className = "confirm"; return; }
+  if (b.dataset.raw) { sendCmd(b.dataset.raw); if (b.dataset.raw === "/clear") $("#tune").close(); }
+});
+$("#tn-close").addEventListener("click", () => $("#tune").close());
+loadUsage();
+setInterval(() => { if (!document.hidden) loadUsage(); }, 60000);
+
+$("#mascot").src = avatar("claude-session-deck", "fun-emoji") + "&eyes=stars&mouth=wideSmile";
+paintPing();
+load(); loadStats();
+setInterval(() => { if (!document.hidden && armed === null && !$("#rn").open && !$("#rs").open && !$("#tune").open) load(); }, 4000);
+setInterval(() => { if (!document.hidden) loadStats(); }, 60000);
+</script>
+</body>
+</html>
