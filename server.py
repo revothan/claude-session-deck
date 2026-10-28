@@ -4,6 +4,8 @@ import json, os, re, signal, subprocess, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import kimi
+
 PORT = int(os.environ.get("PORT", 7337))
 HOME = Path.home()
 CLAUDE = HOME / ".claude"
@@ -11,6 +13,7 @@ SESSIONS = CLAUDE / "sessions"
 PROJECTS = CLAUDE / "projects"
 HERE = Path(__file__).resolve().parent
 RECENT_LIMIT = 80
+SID_RE = re.compile(r"(session_)?[0-9a-f-]{36}")  # Claude ids are UUIDs, Kimi ids are session_<uuid>
 # Extra flags for sessions started or resumed from the page, e.g. "--dangerously-skip-permissions".
 CLAUDE_ARGS = os.environ.get("CSD_CLAUDE_ARGS", "").strip()
 CLAUDE_CMD = "claude" + (" " + CLAUDE_ARGS if CLAUDE_ARGS else "")
@@ -437,6 +440,11 @@ def registered_claude_pid(pid, ps):
     return f.exists() and pid in ps and "claude" in ps[pid]["command"]
 
 
+def agent_pid(pid, ps):
+    """A running Claude Code or Kimi Code process we may focus or quit."""
+    return registered_claude_pid(pid, ps) or (pid in ps and ps[pid]["command"].split()[0].endswith("kimi-code"))
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -459,15 +467,18 @@ class H(BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif self.path == "/api/sessions":
             ps = ps_info()
-            live = live_sessions(ps)
+            live = live_sessions(ps) + kimi.live_sessions(ps)
             ids = {r["sessionId"] for r in live}
             st = tidy_rest(load_state(), live)
             self._json(200, {"now": int(time.time() * 1000), "home": str(HOME), "live": live,
-                             "recent": recent_sessions(ids), "rest": st["rest"],
+                             "recent": sorted(recent_sessions(ids) + kimi.recent_sessions(ids), key=lambda r: r["modifiedAt"], reverse=True)[:RECENT_LIMIT], "rest": st["rest"],
                              "archived": st["archived"]})
         elif self.path.startswith("/api/thread?id="):
             sid = self.path.split("=", 1)[1]
-            t = find_transcript(sid) if re.fullmatch(r"[0-9a-f-]{36}", sid) else None
+            if kimi.is_kimi_id(sid):
+                msgs = kimi.thread(sid)
+                return self._json(200, {"messages": msgs}) if msgs is not None else self._json(404, {"error": "Session not found"})
+            t = find_transcript(sid) if SID_RE.fullmatch(sid) else None
             if not t:
                 return self._json(404, {"error": "Transcript not found"})
             self._json(200, {"messages": thread(t, 30)})
@@ -490,7 +501,7 @@ class H(BaseHTTPRequestHandler):
             ps = ps_info()
             if self.path == "/api/focus":
                 pid = int(data["pid"])
-                if not registered_claude_pid(pid, ps):
+                if not agent_pid(pid, ps):
                     return self._json(400, {"error": "Not a running Claude session"})
                 res = iterm_focus(ps[pid]["tty"])
                 if res != "ok":
@@ -498,22 +509,24 @@ class H(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": True})
             if self.path == "/api/kill":
                 pid = int(data["pid"])
-                if not registered_claude_pid(pid, ps):
+                if not agent_pid(pid, ps):
                     return self._json(400, {"error": "Not a running Claude session"})
                 os.kill(pid, signal.SIGTERM if not data.get("force") else signal.SIGKILL)
                 return self._json(200, {"ok": True})
             if self.path == "/api/resume":
                 sid = data["sessionId"]
-                if not re.fullmatch(r"[0-9a-f-]{36}", sid):
+                if not SID_RE.fullmatch(sid):
                     return self._json(400, {"error": "Bad session id"})
                 cwd = data.get("cwd") or str(HOME)
                 if not os.path.isdir(cwd):
                     return self._json(400, {"error": f"Folder no longer exists: {cwd}"})
-                iterm_run(f"cd {shq(cwd)} && {CLAUDE_CMD} --resume {sid}")
+                iterm_run(f"cd {shq(cwd)} && " + (f"kimi -S {sid}" if kimi.is_kimi_id(sid) else f"{CLAUDE_CMD} --resume {sid}"))
                 return self._json(200, {"ok": True})
             if self.path in ("/api/suggest", "/api/rename"):
                 sid = data["sessionId"]
-                if not re.fullmatch(r"[0-9a-f-]{36}", sid):
+                if kimi.is_kimi_id(sid):
+                    return self._json(400, {"error": "Rename Kimi sessions inside Kimi"})
+                if not SID_RE.fullmatch(sid):
                     return self._json(400, {"error": "Bad session id"})
                 t = find_transcript(sid)
                 meta = transcript_meta(t) if t else {}
@@ -542,7 +555,7 @@ class H(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": True, "via": "file"})
             if self.path in ("/api/rest", "/api/archive"):
                 sid = data["sessionId"]
-                if not re.fullmatch(r"[0-9a-f-]{36}", sid):
+                if not SID_RE.fullmatch(sid):
                     return self._json(400, {"error": "Bad session id"})
                 st = load_state()
                 if self.path == "/api/rest":
@@ -574,7 +587,7 @@ class H(BaseHTTPRequestHandler):
             if self.path == "/api/reply":
                 sid = data["sessionId"]
                 text = str(data.get("text", "")).strip()
-                if not re.fullmatch(r"[0-9a-f-]{36}", sid) or not text:
+                if not SID_RE.fullmatch(sid) or not text:
                     return self._json(400, {"error": "Write something first"})
                 live = None
                 for f in SESSIONS.glob("*.json"):
@@ -584,6 +597,11 @@ class H(BaseHTTPRequestHandler):
                         continue
                     if d.get("sessionId") == sid and d.get("pid") in ps and "claude" in ps[d["pid"]]["command"]:
                         live = d
+                if not live and kimi.is_kimi_id(sid):
+                    k = next((r for r in kimi.live_sessions(ps) if r["sessionId"] == sid), None)
+                    if not k:
+                        return self._json(409, {"error": "This Kimi session isn't open. Resume it first."})
+                    live = {"pid": k["pid"], "status": k["status"]}
                 if live:
                     if iterm_send(ps[live["pid"]]["tty"], text) != "ok":
                         return self._json(404, {"error": "Couldn't find its iTerm tab"})

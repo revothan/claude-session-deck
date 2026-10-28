@@ -14,7 +14,7 @@
    Needs you → Working → Napping, then the resumable history. */
 :root {
   --bg: #fbf7ff; --panel: #ffffff; --line: #ece4f7; --fg: #2a2140; --muted: #85799c; --chip: #f3eefb;
-  --accent: #7c5cff; --accent-soft: #ece6ff;
+  --accent: #7c5cff; --accent-soft: #ece6ff; --kimi: #2f74c0;
   --ready: #ff7aa8; --ready-bg: #ffe6ef; --busy: #f2a516; --busy-bg: #fff2d6; --nap: #7f8ab0; --nap-bg: #eceff8;
   --danger: #e2455b; --danger-bg: #ffe3e7;
   --g0: #efe9f8; --g1: #d6c8ff; --g2: #ad93ff; --g3: #8a67ff; --g4: #5f37e6;
@@ -27,7 +27,7 @@
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #1b1a1f; --panel: #232228; --line: #2f2d35; --fg: #cfcad6; --muted: #8a8593; --chip: #2a2930;
-  --accent: #a497c9; --accent-soft: #302c3c;
+  --accent: #a497c9; --accent-soft: #302c3c; --kimi: #7fa8d6;
   --ready: #c99aab; --ready-bg: #36292f; --busy: #c8ab78; --busy-bg: #332e24; --nap: #8e93a6; --nap-bg: #2a2b32;
   --danger: #c98a90; --danger-bg: #352628;
   --g0: #28272d; --g1: #37334a; --g2: #4a4366; --g3: #625884; --g4: #8579a8;
@@ -35,7 +35,7 @@
   --shadow: 0 1px 0 rgba(0,0,0,.15), 0 6px 16px -12px rgba(0,0,0,.5); color-scheme: dark; } }
 :root[data-theme="dark"] {
   --bg: #1b1a1f; --panel: #232228; --line: #2f2d35; --fg: #cfcad6; --muted: #8a8593; --chip: #2a2930;
-  --accent: #a497c9; --accent-soft: #302c3c;
+  --accent: #a497c9; --accent-soft: #302c3c; --kimi: #7fa8d6;
   --ready: #c99aab; --ready-bg: #36292f; --busy: #c8ab78; --busy-bg: #332e24; --nap: #8e93a6; --nap-bg: #2a2b32;
   --danger: #c98a90; --danger-bg: #352628;
   --g0: #28272d; --g1: #37334a; --g2: #4a4366; --g3: #625884; --g4: #8579a8;
@@ -260,6 +260,9 @@ button.chat { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); 
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
 .ch-usage { padding: 8px 18px; border-bottom: 1px solid var(--line); }
 
+.agent { font: 700 10.5px var(--body); text-transform: uppercase; letter-spacing: .06em; border-radius: 999px; padding: 2px 8px; }
+.agent.kimi { color: var(--kimi); background: color-mix(in srgb, var(--kimi) 16%, transparent); margin-left: 6px; }
+
 /* rename dialog */
 dialog { border: 0; padding: 0; border-radius: 22px; background: var(--panel); color: var(--fg); box-shadow: var(--shadow); width: min(520px, calc(100% - 32px)); }
 dialog::backdrop { background: rgba(10, 8, 16, .55); }
@@ -443,7 +446,8 @@ try { ping = localStorage.getItem("csd-ping") === "1"; } catch {}
 
 const short = p => HOME && (p || "").startsWith(HOME) ? "~" + p.slice(HOME.length) : (p || "");
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const avatar = (seed, style = "bottts-neutral") => `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}&radius=20`;
+const isKimi = id => String(id || "").startsWith("session_");
+const avatar = (seed, style = isKimi(seed) ? "thumbs" : "bottts-neutral") => `https://api.dicebear.com/9.x/${style}/svg?seed=${encodeURIComponent(seed)}&radius=20`;
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 function ago(ms) {
   const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -495,6 +499,7 @@ const rested = id => !!(data && (data.rest?.[id] || data.archived?.includes(id))
 function mood(s) {
   if (rested(s.sessionId)) return "rest";
   if (s.status === "busy") return "busy";
+  if (s.status === "waiting") return "ready";
   return Date.now() - (s.statusUpdatedAt || 0) < READY_MS ? "ready" : "nap";
 }
 const MOOD_LABEL = { ready: "done, your turn", busy: "thinking", nap: "napping", rest: "resting" };
@@ -584,13 +589,13 @@ function render() {
   $("#c-recent").textContent = recent.length;
   $("#recent").innerHTML = recent.map(r => `<tr class="${arch.has(r.sessionId) ? "archived" : ""}">
     <td class="mini"><img src="${avatar(r.sessionId)}" alt="" loading="lazy"></td>
-    <td><div class="t">${esc(r.title || "Untitled session")}${r.live ? '<span class="livebadge">running</span>' : ""}</div><div class="p">${esc(r.lastPrompt || r.sessionId)}</div></td>
+    <td><div class="t">${esc(r.title || "Untitled session")}${r.live ? '<span class="livebadge">running</span>' : ""}${r.agent === "kimi" ? '<span class="agent kimi">Kimi</span>' : ""}</div><div class="p">${esc(r.lastPrompt || r.sessionId)}</div></td>
     <td class="folder">${esc(short(r.cwd))}</td>
     <td class="when">${ago(r.modifiedAt)}</td>
     <td class="size">${r.sizeKB >= 1024 ? (r.sizeKB/1024).toFixed(1) + " MB" : r.sizeKB + " KB"}</td>
     <td class="act"><button data-act="resume" data-id="${r.sessionId}" data-cwd="${esc(r.cwd)}" ${r.live ? "disabled title='Already running'" : ""}>Resume</button>
       <button class="chat" data-act="chat" data-id="${r.sessionId}">Chat</button>
-      <button data-act="rename" data-id="${r.sessionId}">Rename</button>
+      ${r.agent === "kimi" ? "" : `<button data-act="rename" data-id="${r.sessionId}">Rename</button>`}
       <button data-act="archive" data-id="${r.sessionId}" data-on="${arch.has(r.sessionId) ? "" : "1"}">${arch.has(r.sessionId) ? "Unarchive" : "Archive"}</button>
       <button data-act="copycmd" data-id="${r.sessionId}" data-cwd="${esc(r.cwd)}">Copy cmd</button></td></tr>`).join("")
     || `<tr><td colspan="6" class="empty">No sessions match.</td></tr>`;
@@ -600,7 +605,7 @@ function card(s, m, sharers) {
   const killLabel = armed === s.pid ? "Sure? Quit" : "Quit";
   return `<div class="card ${m}">
     <div class="avatar"><img src="${avatar(s.sessionId)}" alt=""></div>
-    <div class="head"><span class="mood">${MOOD_LABEL[m]}</span><span class="name">${esc(s.name || s.pid)}</span>${sharers > 1 ? `<span class="shared" title="Use a git worktree to avoid clobbering">${sharers} in this folder</span>` : ""}</div>
+    <div class="head"><span class="mood">${s.status === "waiting" ? "needs approval" : MOOD_LABEL[m]}</span>${s.agent === "kimi" ? '<span class="agent kimi">Kimi</span>' : ""}<span class="name">${esc(s.name || s.pid)}</span>${sharers > 1 ? `<span class="shared" title="Use a git worktree to avoid clobbering">${sharers} in this folder</span>` : ""}</div>
     <div class="title">${esc(s.title || "Untitled session")}</div>
     <div class="body">
       <div class="cwd">${esc(short(s.cwd))}</div>
@@ -613,8 +618,8 @@ function card(s, m, sharers) {
         <button class="chat" data-act="chat" data-id="${s.sessionId}">${m === "ready" ? "Read & reply" : "Chat"}</button>
         <button data-act="focus" data-pid="${s.pid}">${m === "ready" ? "Jump in" : "Focus tab"}</button>
         ${m !== "rest" ? `<button data-act="rest" data-id="${s.sessionId}">Rest</button>` : ""}
-        <button data-act="tune" data-pid="${s.pid}">Tune</button>
-        <button data-act="rename" data-id="${s.sessionId}">Rename</button>
+        ${s.agent === "kimi" ? "" : `<button data-act="tune" data-pid="${s.pid}">Tune</button>
+        <button data-act="rename" data-id="${s.sessionId}">Rename</button>`}
         <button class="${armed === s.pid ? "confirm" : "danger"}" data-act="kill" data-pid="${s.pid}">${killLabel}</button>
       </div>
     </div></div>`;
@@ -669,7 +674,7 @@ document.addEventListener("click", async e => {
       const last = (j.messages || []).filter(m => m.role === "assistant").at(-1);
       if (last) copy(last.final || last.text, "Reply"); else toast("No reply to copy yet");
     }
-    else if (act === "copycmd") copy(`cd '${cwd.replace(/'/g, "'\\''")}' && claude --resume ${id}`, "Resume command");
+    else if (act === "copycmd") copy(`cd '${cwd.replace(/'/g, "'\\''")}' && ${isKimi(id) ? "kimi -S" : "claude --resume"} ${id}`, "Resume command");
     else if (act === "web") window.open("https://claude.ai/code/" + bridge, "_blank");
     else if (act === "resume") { await post("/api/resume", { sessionId: id, cwd }); party(x, y); toast("Waking it up in a new iTerm tab"); setTimeout(load, 2500); }
     else if (act === "kill") {
@@ -976,7 +981,7 @@ $("#ch-form").addEventListener("submit", async e => {
 
 /* ---------- plan usage ---------- */
 const fmtK = n => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : Math.round(n / 1000) + "k";
-const ctxMax = s => (/opus|fable/.test(s.model || "") || (s.ctxTokens || 0) > 200000) ? 1e6 : 2e5;
+const ctxMax = s => s.ctxMax || (/opus|fable/.test(s.model || "") || (s.ctxTokens || 0) > 200000) ? 1e6 : 2e5;
 const lvl = p => p >= 85 ? "crit" : p >= 60 ? "warn" : "";
 function ctxBar(s) {
   if (!s.ctxTokens) return "";

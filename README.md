@@ -20,6 +20,8 @@ And it lets you:
 - Get a chime + desktop notification when a session finishes
 - Play Bug Squash or do box breathing while you wait
 
+It also picks up **[Kimi Code](https://github.com/MoonshotAI/kimi-code)** sessions (`kimi`) running in iTerm: they show with a Kimi badge, and you can read, chat with, focus, rest, resume and quit them. Tune and Rename are Claude-only.
+
 Everything runs on `127.0.0.1`. Nothing is uploaded anywhere except as listed under Privacy.
 
 ## Requirements
@@ -62,6 +64,7 @@ Add `~/claude-session-deck/start.sh` to System Settings → General → Login It
 - The prompt graph reads `~/.claude/history.jsonl`.
 - Chat, Tune and Rename on a running session type text into its iTerm tab. Tune and Rename only send while the session is idle; a chat message sent to a busy session gets queued by Claude Code.
 - Renaming a closed session appends a `custom-title` line to its transcript, the same thing `/rename` does.
+- Kimi sessions come from `~/.kimi-code/sessions/*/session_*/` (`state.json` + `agents/main/wire.jsonl`). Kimi doesn't record which process has which session open, so the page matches each running `kimi-code` process by folder and by its iTerm tab title.
 - Rest and archive choices are saved in `state.json` next to the server.
 
 ## Privacy
