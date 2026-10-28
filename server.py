@@ -90,6 +90,48 @@ def transcript_meta(path):
 
 
 _usage_cache = {"at": 0, "data": None}
+USAGE_LOG = HERE / "usage_log.jsonl"  # weekly % over time, so we can tell how much of it was used today
+DAILY_BUDGET = 100 / 7
+
+
+def daily_budget(limits):
+    """Today's share of the weekly limit: (weekly % now) - (weekly % at local midnight), against 100/7 per day."""
+    wk = next((l for l in limits if l.get("kind") == "weekly_all"), None)
+    if not wk:
+        return None
+    now = time.time()
+    resets = wk.get("resets_at")
+    log = []
+    try:
+        log = [json.loads(l) for l in USAGE_LOG.read_text().splitlines() if l.strip()]
+    except (OSError, ValueError):
+        pass
+    last = log[-1] if log else None
+    if not last or last.get("pct") != wk["percent"] or last.get("resets") != resets or now - last["t"] > 900:
+        log.append({"t": now, "pct": wk["percent"], "resets": resets})
+        log = [e for e in log if now - e["t"] < 10 * 86400]
+        USAGE_LOG.write_text("".join(json.dumps(e) + "\n" for e in log))
+    lt = time.localtime(now)
+    midnight = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
+    same = [e for e in log if e.get("resets") == resets]  # entries from this weekly window
+    before = [e for e in same if e["t"] <= midnight]
+    window_start = None
+    try:
+        from datetime import datetime
+        window_start = datetime.fromisoformat(resets).timestamp() - 7 * 86400
+    except (TypeError, ValueError):
+        pass
+    if before:
+        base, since, exact = before[-1]["pct"], midnight, True
+    elif window_start and window_start >= midnight:
+        base, since, exact = 0, window_start, True  # the week reset today
+    else:
+        first = next((e for e in same if e["t"] > midnight), None)
+        base, since, exact = (first["pct"], first["t"], False) if first else (wk["percent"], now, False)
+    elapsed_days = (now - window_start) / 86400 if window_start else None
+    return {"budget": round(DAILY_BUDGET, 2), "used": max(0, wk["percent"] - base), "since": int(since * 1000),
+            "exact": exact, "weekly": wk["percent"],
+            "pace": round(min(100, elapsed_days * DAILY_BUDGET), 1) if elapsed_days is not None else None}
 
 
 def plan_usage():
@@ -114,6 +156,7 @@ def plan_usage():
     data = {"plan": oauth.get("subscriptionType"), "limits": d.get("limits") or [],
             "extra": {"enabled": ex.get("is_enabled"), "used": ex.get("used_credits"), "limit": ex.get("monthly_limit")},
             "fetchedAt": int(time.time() * 1000)}
+    data["daily"] = daily_budget(data["limits"])
     _usage_cache.update(at=time.time(), data=data)
     return data
 

@@ -1004,7 +1004,12 @@ function renderUsage() {
   if (usage.error) { $("#usage-sub").textContent = usage.error; return; }
   const name = { session: "Current session (5h)", weekly_all: "This week, all models", weekly_opus: "This week, Opus", weekly_sonnet: "This week, Sonnet" };
   $("#usage-sub").textContent = `${(usage.plan || "").toUpperCase()} plan · updated ${ago(usage.fetchedAt)}`;
-  $("#usage-bars").innerHTML = usage.limits.map(l => `<div class="bar-row">
+  const dly = usage.daily;
+  const dailyRow = dly ? (() => { const p = dly.used / dly.budget * 100; return `<div class="bar-row">
+    <div class="bar-label"><span>Today's share of the week</span><small>${dly.used}% of ${dly.budget.toFixed(1)}%${dly.exact ? "" : ` · since ${hm(new Date(dly.since))}`}</small></div>
+    <div class="track"><div class="fill ${lvl(p >= 100 ? 100 : p >= 80 ? 70 : 0)}" style="width:${Math.min(100, p)}%"></div></div></div>`; })() : "";
+  checkDaily();
+  $("#usage-bars").innerHTML = dailyRow + usage.limits.map(l => `<div class="bar-row">
     <div class="bar-label"><span>${esc(name[l.kind] || l.kind.replace(/_/g, " "))}</span><small>${l.percent}% · ${resetsIn(l.resets_at)}</small></div>
     <div class="track"><div class="fill ${lvl(l.percent)}" style="width:${Math.min(100, l.percent)}%"></div></div></div>`).join("");
   $("#usage-tips").innerHTML = usageTips().map(t => `<span class="tip ${t[0]}">${esc(t[1])}</span>`).join("");
@@ -1019,12 +1024,38 @@ function usageMini() {
     else if (l.group === "weekly" && l.percent >= 60 && !hint) hint = `<span class="hint">Sonnet or medium effort for routine asks</span>`;
     return `<span class="u">${esc(label[l.kind] || l.kind)} <span class="track"><span class="fill ${lvl(l.percent)}" style="display:block;width:${Math.min(100, l.percent)}%"></span></span>${l.percent}% <span>↻ ${resetsIn(l.resets_at).replace(/^resets (in )?/, "")}</span></span>`;
   });
+  const dly = usage.daily;
+  if (dly) {
+    const p = dly.used / dly.budget * 100;
+    parts.unshift(`<span class="u">today <span class="track"><span class="fill ${lvl(p >= 100 ? 100 : p >= 80 ? 70 : 0)}" style="display:block;width:${Math.min(100, p)}%"></span></span>${dly.used}/${dly.budget.toFixed(1)}%</span>`);
+    if (p >= 100) hint = `<span class="hint crit">Today's budget is used up. More now borrows from later days</span>`;
+    else if (p >= 80 && !hint.includes("crit")) hint = `<span class="hint">Close to today's budget (${dly.used}% of ${dly.budget.toFixed(1)}%)</span>`;
+  }
   return parts.join("") + hint;
 }
 function paintUsageSlots() { const h = usageMini(); document.querySelectorAll(".usage-slot").forEach(el => el.innerHTML = h); }
+function checkDaily() {
+  const dly = usage?.daily; if (!dly) return;
+  const p = dly.used / dly.budget * 100, level = p >= 100 ? 100 : p >= 80 ? 80 : 0;
+  const key = "csd-daily-" + ymd(new Date());
+  let seen = 0; try { seen = +localStorage.getItem(key) || 0; } catch {}
+  if (!level || level <= seen) return;
+  try { localStorage.setItem(key, level); } catch {}
+  const msg = level === 100 ? `Daily limit reached: ${dly.used}% of the week used today (budget ${dly.budget.toFixed(1)}%)`
+                            : `Heads up: ${dly.used}% of the week used today, ${Math.round(p)}% of your daily budget`;
+  toast(msg); chime();
+  if ("Notification" in window && Notification.permission === "granted") new Notification("Claude usage", { body: msg });
+}
 function usageTips() {
   const tips = [], week = usage?.limits?.find(l => l.group === "weekly"), sess = usage?.limits?.find(l => l.kind === "session");
   const live = data?.live || [];
+  const dly = usage?.daily;
+  if (dly) {
+    const p = dly.used / dly.budget * 100;
+    if (p >= 100) tips.push(["warn", `Daily budget passed: ${dly.used}% used today vs ${dly.budget.toFixed(1)}% (100% ÷ 7). Switch to Sonnet/low effort or stop for today`]);
+    else if (p >= 80) tips.push(["warn", `${Math.round(p)}% of today's budget used (${dly.used}% of ${dly.budget.toFixed(1)}%)`]);
+    if (dly.pace != null && dly.weekly > dly.pace + dly.budget) tips.push(["warn", `Ahead of pace: ${dly.weekly}% used, ${Math.round(dly.pace)}% expected by now`]);
+  }
   if (week && week.percent >= 60) tips.push(["warn", `Week at ${week.percent}%: use Sonnet or lower effort for routine sessions`]);
   if (sess && sess.percent >= 80) tips.push(["warn", `5-hour window at ${sess.percent}%: pause heavy work until it resets`]);
   const big = live.filter(s => s.ctxTokens && s.ctxTokens / ctxMax(s) > .5);
