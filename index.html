@@ -1005,8 +1005,8 @@ function renderUsage() {
   const name = { session: "Current session (5h)", weekly_all: "This week, all models", weekly_opus: "This week, Opus", weekly_sonnet: "This week, Sonnet" };
   $("#usage-sub").textContent = `${(usage.plan || "").toUpperCase()} plan · updated ${ago(usage.fetchedAt)}`;
   const dly = usage.daily;
-  const dailyRow = dly ? (() => { const p = dly.used / dly.budget * 100; return `<div class="bar-row">
-    <div class="bar-label"><span>Today's share of the week</span><small>${dly.used}% of ${dly.budget.toFixed(1)}%${dly.exact ? "" : ` · since ${hm(new Date(dly.since))}`}</small></div>
+  const dailyRow = dly ? (() => { const p = dPct(dly); return `<div class="bar-row">
+    <div class="bar-label"><span>Today's budget · day ${dly.day} of 7</span><small>${dly.used}% of ${Math.max(0, dly.allowance).toFixed(1)}%${carryNote(dly)}${dly.exact ? "" : ` · since ${hm(new Date(dly.since))}`}</small></div>
     <div class="track"><div class="fill ${lvl(p >= 100 ? 100 : p >= 80 ? 70 : 0)}" style="width:${Math.min(100, p)}%"></div></div></div>`; })() : "";
   checkDaily();
   $("#usage-bars").innerHTML = dailyRow + usage.limits.map(l => `<div class="bar-row">
@@ -1026,23 +1026,25 @@ function usageMini() {
   });
   const dly = usage.daily;
   if (dly) {
-    const p = dly.used / dly.budget * 100;
-    parts.unshift(`<span class="u">today <span class="track"><span class="fill ${lvl(p >= 100 ? 100 : p >= 80 ? 70 : 0)}" style="display:block;width:${Math.min(100, p)}%"></span></span>${dly.used}/${dly.budget.toFixed(1)}%</span>`);
+    const p = dPct(dly);
+    parts.unshift(`<span class="u">today <span class="track"><span class="fill ${lvl(p >= 100 ? 100 : p >= 80 ? 70 : 0)}" style="display:block;width:${Math.min(100, p)}%"></span></span>${dly.used}/${Math.max(0, dly.allowance).toFixed(1)}%</span>`);
     if (p >= 100) hint = `<span class="hint crit">Today's budget is used up. More now borrows from later days</span>`;
-    else if (p >= 80 && !hint.includes("crit")) hint = `<span class="hint">Close to today's budget (${dly.used}% of ${dly.budget.toFixed(1)}%)</span>`;
+    else if (p >= 80 && !hint.includes("crit")) hint = `<span class="hint">Close to today's budget (${dly.used}% of ${dly.allowance.toFixed(1)}%)</span>`;
   }
   return parts.join("") + hint;
 }
 function paintUsageSlots() { const h = usageMini(); document.querySelectorAll(".usage-slot").forEach(el => el.innerHTML = h); }
+const dPct = d => d.allowance <= 0 ? 100 : d.used / d.allowance * 100;
+const carryNote = d => d.carry > 0.05 ? ` (${d.budget.toFixed(1)} + ${d.carry.toFixed(1)} carried over)` : d.carry < -0.05 ? ` (${d.budget.toFixed(1)} − ${(-d.carry).toFixed(1)} overused earlier)` : "";
 function checkDaily() {
   const dly = usage?.daily; if (!dly) return;
-  const p = dly.used / dly.budget * 100, level = p >= 100 ? 100 : p >= 80 ? 80 : 0;
+  const p = dPct(dly), level = p >= 100 ? 100 : p >= 80 ? 80 : 0;
   const key = "csd-daily-" + ymd(new Date());
   let seen = 0; try { seen = +localStorage.getItem(key) || 0; } catch {}
   if (!level || level <= seen) return;
   try { localStorage.setItem(key, level); } catch {}
-  const msg = level === 100 ? `Daily limit reached: ${dly.used}% of the week used today (budget ${dly.budget.toFixed(1)}%)`
-                            : `Heads up: ${dly.used}% of the week used today, ${Math.round(p)}% of your daily budget`;
+  const msg = level === 100 ? `Daily limit reached: ${dly.used}% of the week used today (budget ${Math.max(0, dly.allowance).toFixed(1)}%)`
+                            : `Heads up: ${dly.used}% of the week used today, ${Math.round(p)}% of today's budget`;
   toast(msg); chime();
   if ("Notification" in window && Notification.permission === "granted") new Notification("Claude usage", { body: msg });
 }
@@ -1051,10 +1053,10 @@ function usageTips() {
   const live = data?.live || [];
   const dly = usage?.daily;
   if (dly) {
-    const p = dly.used / dly.budget * 100;
-    if (p >= 100) tips.push(["warn", `Daily budget passed: ${dly.used}% used today vs ${dly.budget.toFixed(1)}% (100% ÷ 7). Switch to Sonnet/low effort or stop for today`]);
-    else if (p >= 80) tips.push(["warn", `${Math.round(p)}% of today's budget used (${dly.used}% of ${dly.budget.toFixed(1)}%)`]);
-    if (dly.pace != null && dly.weekly > dly.pace + dly.budget) tips.push(["warn", `Ahead of pace: ${dly.weekly}% used, ${Math.round(dly.pace)}% expected by now`]);
+    const p = dPct(dly);
+    if (p >= 100) tips.push(["warn", `Daily budget passed: ${dly.used}% used today vs ${Math.max(0, dly.allowance).toFixed(1)}%${carryNote(dly)}. Switch to Sonnet/low effort or stop for today`]);
+    else if (p >= 80) tips.push(["warn", `${Math.round(p)}% of today's budget used (${dly.used}% of ${dly.allowance.toFixed(1)}%)`]);
+    else if (dly.carry > 0.05) tips.push(["", `${dly.carry.toFixed(1)}% left over from earlier days is added to today`]);
   }
   if (week && week.percent >= 60) tips.push(["warn", `Week at ${week.percent}%: use Sonnet or lower effort for routine sessions`]);
   if (sess && sess.percent >= 80) tips.push(["warn", `5-hour window at ${sess.percent}%: pause heavy work until it resets`]);

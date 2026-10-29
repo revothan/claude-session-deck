@@ -16,7 +16,7 @@ And it lets you:
 - **Rename** sessions, with suggested names (instant ones, plus 4 ideas from Claude Haiku)
 - **Tune** a session: switch model or effort, `/compact`, `/fast`, `/clear`
 - See your **plan usage** (5-hour and weekly limits, same numbers as `/usage`) and each session's context size
-- Stay on a **daily budget**: the weekly limit split evenly (100% ÷ 7 ≈ 14.3% a day), with a warning at 80% of today's share and an alert when you pass it
+- Stay on a **daily budget**: each day of the week adds 100% ÷ 7 ≈ 14.3%. What you don't use rolls over to the next day (and overuse is taken off). Warning at 80% of today's budget, alert when you pass it
 - See a GitHub-style graph of your prompts per day and your streak
 - Get a chime + desktop notification when a session finishes
 - Play Bug Squash or do box breathing while you wait
@@ -67,7 +67,7 @@ Add `~/claude-session-deck/start.sh` to System Settings → General → Login It
 - Renaming a closed session appends a `custom-title` line to its transcript, the same thing `/rename` does.
 - Kimi sessions come from `~/.kimi-code/sessions/*/session_*/` (`state.json` + `agents/main/wire.jsonl`). Kimi doesn't record which process has which session open, so the page matches each running `kimi-code` process by folder and by its iTerm tab title.
 - Rest and archive choices are saved in `state.json` next to the server.
-- Today's usage is the weekly % now minus the weekly % at local midnight. The server logs the weekly % to `usage_log.jsonl` while it runs, so the first day it's counted from when you started it.
+- Today's budget = (days of the week so far × 14.3%) − weekly % at local midnight. Today's usage is the weekly % now minus the weekly % at local midnight. The server logs the weekly % to `usage_log.jsonl` while it runs, so the first day it's counted from when you started it.
 
 ## Privacy
 

@@ -100,7 +100,11 @@ def daily_budget(limits):
     if not wk:
         return None
     now = time.time()
-    resets = wk.get("resets_at")
+    from datetime import datetime
+    try:  # the API's reset time jitters by a second between calls; round it so one week = one key
+        resets = datetime.fromtimestamp(round(datetime.fromisoformat(wk["resets_at"]).timestamp() / 600) * 600).isoformat()
+    except (KeyError, TypeError, ValueError):
+        resets = wk.get("resets_at")
     log = []
     try:
         log = [json.loads(l) for l in USAGE_LOG.read_text().splitlines() if l.strip()]
@@ -113,11 +117,15 @@ def daily_budget(limits):
         USAGE_LOG.write_text("".join(json.dumps(e) + "\n" for e in log))
     lt = time.localtime(now)
     midnight = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1))
-    same = [e for e in log if e.get("resets") == resets]  # entries from this weekly window
+    def week_key(r):
+        try:
+            return round(datetime.fromisoformat(r).timestamp() / 600)
+        except (TypeError, ValueError):
+            return r
+    same = [e for e in log if week_key(e.get("resets")) == week_key(resets)]  # entries from this weekly window
     before = [e for e in same if e["t"] <= midnight]
     window_start = None
     try:
-        from datetime import datetime
         window_start = datetime.fromisoformat(resets).timestamp() - 7 * 86400
     except (TypeError, ValueError):
         pass
@@ -128,10 +136,18 @@ def daily_budget(limits):
     else:
         first = next((e for e in same if e["t"] > midnight), None)
         base, since, exact = (first["pct"], first["t"], False) if first else (wk["percent"], now, False)
-    elapsed_days = (now - window_start) / 86400 if window_start else None
-    return {"budget": round(DAILY_BUDGET, 2), "used": max(0, wk["percent"] - base), "since": int(since * 1000),
-            "exact": exact, "weekly": wk["percent"],
-            "pace": round(min(100, elapsed_days * DAILY_BUDGET), 1) if elapsed_days is not None else None}
+    # Rollover: every calendar day of the window adds 100/7. Whatever wasn't used before today carries over
+    # (and overuse before today is paid back), so today's allowance = budget accrued through today - usage before today.
+    if window_start:
+        from datetime import date
+        day_idx = (date.fromtimestamp(now) - date.fromtimestamp(window_start)).days + 1
+    else:
+        day_idx = 1
+    accrued = min(100.0, day_idx * DAILY_BUDGET)
+    allowance = accrued - base
+    return {"budget": round(DAILY_BUDGET, 2), "allowance": round(allowance, 1), "carry": round(allowance - DAILY_BUDGET, 1),
+            "used": max(0, wk["percent"] - base), "since": int(since * 1000), "exact": exact,
+            "weekly": wk["percent"], "day": min(day_idx, 7)}
 
 
 def plan_usage():
